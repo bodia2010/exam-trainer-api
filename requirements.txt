@@ -1,0 +1,2 @@
+markitdown[all]==0.1.0
+google-generativeai==0.8.3
