@@ -11,7 +11,10 @@ app = Flask(__name__)
 genai.configure(api_key=os.environ.get('GEMINI_API_KEY', ''))
 _model = genai.GenerativeModel(
     'gemini-2.5-flash',
-    generation_config=genai.GenerationConfig(temperature=0),
+    generation_config=genai.GenerationConfig(
+        temperature=1,  # required when thinking_budget=0
+        thinking_config=genai.protos.ThinkingConfig(thinking_budget=0),
+    ),
 )
 
 
