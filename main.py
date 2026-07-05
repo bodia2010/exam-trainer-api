@@ -1,20 +1,16 @@
 import os
 import json
 import tempfile
+import requests
 from flask import Flask, request, jsonify
 from markitdown import MarkItDown
-import google.generativeai as genai
 from prompts import PROMPTS
 
 app = Flask(__name__)
 
-genai.configure(api_key=os.environ.get('GEMINI_API_KEY', ''))
-_model = genai.GenerativeModel(
-    'gemini-2.5-flash',
-    generation_config=genai.GenerationConfig(
-        temperature=1,  # required when thinking_budget=0
-        thinking_config=genai.protos.ThinkingConfig(thinking_budget=0),
-    ),
+_GEMINI_URL = (
+    'https://generativelanguage.googleapis.com/v1beta/models/'
+    'gemini-2.5-flash:generateContent'
 )
 
 
@@ -51,6 +47,26 @@ def convert():
         os.unlink(tmp_path)
 
 
+def _call_gemini(prompt: str) -> str:
+    api_key = os.environ.get('GEMINI_API_KEY', '')
+    payload = {
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {
+            'temperature': 1,  # required when thinkingBudget=0
+            'thinkingConfig': {'thinkingBudget': 0},
+        },
+    }
+    resp = requests.post(
+        _GEMINI_URL,
+        params={'key': api_key},
+        json=payload,
+        timeout=45,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data['candidates'][0]['content']['parts'][0]['text']
+
+
 @app.route('/api/parse', methods=['POST', 'OPTIONS'])
 def parse():
     if request.method == 'OPTIONS':
@@ -68,9 +84,9 @@ def parse():
 
     prompt = prompt_template.replace('{markdown}', markdown)
 
+    text = ''
     try:
-        response = _model.generate_content(prompt)
-        text = response.text.strip()
+        text = _call_gemini(prompt).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
         return jsonify(json.loads(text))
