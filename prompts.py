@@ -11,6 +11,7 @@ _UNIVERSAL = """Parse German B2 Beruf exam exercises from the Markdown below.
 For each variant return a JSON object:
 {
   "variant_number": <integer>,
+  "version": "<short version label or null>",
   "topic": "<short topic or null>",
   "audio_url": "<telegram url of the recording, or null>",
   "texts": [{"title": "<label>", "content": "<full text>"}],
@@ -24,7 +25,8 @@ For each variant return a JSON object:
 
 Common rules:
 - Use only the question types the section description above specifies; option_pool is [] unless it says otherwise
-- Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers; if several versions of the questions exist (Новый вариант / Новая версия), keep ONE most recent complete set per variant
+- Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers
+- VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)". Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object. A lone alternative wording of a single question is NOT an edition — ignore it and keep the answered one.
 - Never invent content: skip a question if its options or correct answer cannot be determined
 - Ignore page numbers (lines with only digits) and Russian meta-commentary
 - Return ONLY a valid JSON array of variant objects. No markdown wrapper, no explanation.
@@ -97,6 +99,7 @@ Find all sections starting with "Hören Teil 1 (вариант №".
 For each variant return a JSON object:
 {
   "variant_number": <integer>,
+  "version": "<short version label or null>",
   "audio_url": "<url or null>",
   "question_pairs": [
     {
@@ -125,6 +128,7 @@ Rules:
 - Each variant has exactly 3 question pairs (e.g. 22+23, 24+25, 26+27)
 - audio_url: single URL at top of variant; null if absent
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
+- VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)") with its own full set of question pairs, output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original), self-contained dialogues and questions. A lone alternative wording of a single question is NOT an edition — keep the answered one.
 - Ignore lines of only digits (page numbers) and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
@@ -178,6 +182,7 @@ Find all sections starting with "Sprachbausteine Teil 1 (вариант №".
 For each variant return:
 {
   "variant_number": <integer>,
+  "version": "<short version label or null>",
   "topic": "<letter topic>",
   "letter_text": "<letter text with blanks as [46], [47], ... [51]>",
   "answers": [
@@ -205,6 +210,7 @@ For each variant return:
 Rules:
 - Inline blanks appear as "46 (e- sicher)" — convert to [46] markers in letter_text
 - Question numbers are 46–51 (or 42–51 depending on variant)
+- VERSIONS: headers like "Sprachbausteine Teil 1 (вариант №3)(новая версия от …)" are reworked editions — output each as a SEPARATE object: same variant_number, distinct "version" label (null for the original), with its own complete letter_text, answers and all_options.
 - Ignore page numbers and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
