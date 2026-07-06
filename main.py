@@ -110,8 +110,8 @@ def tts_endpoint():
     speaker = body.get('speaker') or ''
     if not text:
         return jsonify({'error': 'text is required'}), 400
-    if len(text) > 1000:
-        return jsonify({'error': 'text too long (max 1000 chars per line)'}), 400
+    if len(text) > 2000:
+        return jsonify({'error': 'text too long (max 2000 chars per line)'}), 400
 
     voice = tts.voice_for(speaker)
     try:
