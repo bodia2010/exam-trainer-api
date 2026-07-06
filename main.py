@@ -113,7 +113,7 @@ def tts_endpoint():
     if len(text) > 2000:
         return jsonify({'error': 'text too long (max 2000 chars per line)'}), 400
 
-    voice = tts.voice_for(speaker)
+    voice = tts.voice_for(speaker, text)
     try:
         audio_bytes = asyncio.run(tts.synthesize(text, voice))
         return Response(audio_bytes, mimetype='audio/mpeg')

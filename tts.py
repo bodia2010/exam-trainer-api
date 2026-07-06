@@ -40,10 +40,15 @@ def _stable_index(s: str, n: int) -> int:
     return int(hashlib.md5(s.encode('utf-8')).hexdigest(), 16) % n
 
 
-def voice_for(speaker: str) -> str:
+def voice_for(speaker: str, text: str = '') -> str:
     speaker = speaker.strip()
     if not speaker:
-        return MALE_VOICES[0]
+        # No speaker tag at all (client couldn't detect a narrator name/
+        # gender) — better to spread untitled monologues across the full
+        # voice pool by hashing their text than to hardcode the same
+        # voice for every one of them.
+        pool = MALE_VOICES + FEMALE_VOICES
+        return pool[_stable_index(text or 'default', len(pool))]
     g = _gender(speaker)
     pool = {'male': MALE_VOICES, 'female': FEMALE_VOICES}.get(
         g, MALE_VOICES + FEMALE_VOICES)
