@@ -1,10 +1,12 @@
 import os
 import json
+import asyncio
 import tempfile
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from markitdown import MarkItDown
 from prompts import PROMPTS
+import tts
 
 app = Flask(__name__)
 
@@ -92,5 +94,28 @@ def parse():
         return jsonify(json.loads(text))
     except json.JSONDecodeError as e:
         return jsonify({'error': f'Invalid JSON from Gemini: {e}', 'raw': text[:500]}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tts', methods=['POST', 'OPTIONS'])
+def tts_endpoint():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    if not _check_auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    body = request.get_json(force=True)
+    text = (body.get('text') or '').strip()
+    speaker = body.get('speaker') or ''
+    if not text:
+        return jsonify({'error': 'text is required'}), 400
+    if len(text) > 1000:
+        return jsonify({'error': 'text too long (max 1000 chars per line)'}), 400
+
+    voice = tts.voice_for(speaker)
+    try:
+        audio_bytes = asyncio.run(tts.synthesize(text, voice))
+        return Response(audio_bytes, mimetype='audio/mpeg')
     except Exception as e:
         return jsonify({'error': str(e)}), 500
