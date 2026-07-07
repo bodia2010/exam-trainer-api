@@ -1,4 +1,4 @@
-description: "Exam Trainer — parse pass, model comparison (hoeren_teil1)"
+description: "Exam Trainer — parse pass, model comparison across all section types"
 
 prompts:
   - file://prompt_parse.py:get_prompt
@@ -20,16 +20,39 @@ providers:
         thinkingConfig:
           thinkingLevel: MINIMAL
 
+defaultTest:
+  assert:
+    - type: python
+      value: file://assertions.py:question_pairs_exactly_three
+    - type: python
+      value: file://assertions.py:original_has_no_sentinel
+    - type: python
+      value: file://assertions.py:editions_have_content
+    - type: python
+      value: file://assertions.py:item_count_at_least
+
 tests:
-  - description: "hoeren_teil1 variant 3 — 6 editions in one group (our worst known under-extraction case)"
-    vars:
-      section_type: hoeren_teil1
-      markdown: file://fixtures/hoeren_teil1_variant3.txt
-      min_items: 2
-    assert:
-      - type: python
-        value: file://assertions.py:question_pairs_exactly_three
-      - type: python
-        value: file://assertions.py:original_has_no_sentinel
-      - type: python
-        value: file://assertions.py:item_count_at_least
+  - description: "lesen_teil1 — heaviest multi-edition variant"
+    vars: { section_type: lesen_teil1, markdown: file://fixtures/lesen_teil1.txt, min_items: 2 }
+  - description: "lesen_teil2 — heaviest multi-edition variant"
+    vars: { section_type: lesen_teil2, markdown: file://fixtures/lesen_teil2.txt, min_items: 2 }
+  - description: "lesen_teil3 — heaviest multi-edition variant"
+    vars: { section_type: lesen_teil3, markdown: file://fixtures/lesen_teil3.txt, min_items: 2 }
+  - description: "lesen_teil4 — heaviest multi-edition variant"
+    vars: { section_type: lesen_teil4, markdown: file://fixtures/lesen_teil4.txt, min_items: 2 }
+  - description: "beschwerde — heaviest multi-edition variant"
+    vars: { section_type: beschwerde, markdown: file://fixtures/beschwerde.txt, min_items: 2 }
+  - description: "sprachbausteine_teil1 — heaviest multi-edition variant"
+    vars: { section_type: sprachbausteine_teil1, markdown: file://fixtures/sprachbausteine_teil1.txt, min_items: 2 }
+  - description: "sprachbausteine_teil2 — heaviest multi-edition variant"
+    vars: { section_type: sprachbausteine_teil2, markdown: file://fixtures/sprachbausteine_teil2.txt, min_items: 2 }
+  - description: "telefonnotiz — heaviest multi-edition variant (nested versions, not top-level objects)"
+    vars: { section_type: telefonnotiz, markdown: file://fixtures/telefonnotiz.txt, min_items: 1 }
+  - description: "hoeren_teil1 — heaviest multi-edition variant (our known-tricky case)"
+    vars: { section_type: hoeren_teil1, markdown: file://fixtures/hoeren_teil1.txt, min_items: 2 }
+  - description: "hoeren_teil2 — heaviest multi-edition variant"
+    vars: { section_type: hoeren_teil2, markdown: file://fixtures/hoeren_teil2.txt, min_items: 2 }
+  - description: "hoeren_teil3 — heaviest multi-edition variant"
+    vars: { section_type: hoeren_teil3, markdown: file://fixtures/hoeren_teil3.txt, min_items: 2 }
+  - description: "hoeren_teil4 — heaviest multi-edition variant"
+    vars: { section_type: hoeren_teil4, markdown: file://fixtures/hoeren_teil4.txt, min_items: 2 }

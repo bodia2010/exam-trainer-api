@@ -82,7 +82,10 @@ def _find_sentinel(value, path):
 
 def question_pairs_exactly_three(output, context):
     """hoeren_teil1's own schema rule: every variant/edition object has
-    exactly 3 question_pairs, no more, no less."""
+    exactly 3 question_pairs, no more, no less. A no-op pass for every
+    other section type, which doesn't have this rule."""
+    if context['vars'].get('section_type') != 'hoeren_teil1':
+        return {'pass': True, 'score': 1, 'reason': 'not applicable to this section type'}
     try:
         objects = _parse(output)
     except Exception as e:
@@ -96,3 +99,42 @@ def question_pairs_exactly_three(output, context):
         return {'pass': False, 'score': 0,
                 'reason': f'objects with != 3 question_pairs: {bad}'}
     return {'pass': True, 'score': 1, 'reason': 'all objects have exactly 3 pairs'}
+
+
+def editions_have_content(output, context):
+    """Every reworked edition (version is not null) must still carry
+    real quiz content — 'questions' for the universal schema, 'answers'
+    for sprachbausteine_teil1, 'versions' for telefonnotiz. Catches the
+    other failure direction: deduplication swallowing content it
+    shouldn't have touched, leaving an edition structurally present but
+    practically empty."""
+    section_type = context['vars'].get('section_type')
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+
+    content_field = {
+        'sprachbausteine_teil1': 'answers',
+        'telefonnotiz': 'versions',
+        'hoeren_teil1': 'question_pairs',
+    }.get(section_type, 'questions')
+
+    empty = []
+    for o in objects:
+        if section_type == 'telefonnotiz':
+            # telefonnotiz nests editions under one object's "versions" —
+            # check each entry there, not top-level "version"
+            for v in o.get('versions', []):
+                if not v.get('monologue') and not v.get('answer'):
+                    empty.append((o.get('variant_number'), v.get('label')))
+            continue
+        if o.get('version') is None:
+            continue
+        if not o.get(content_field):
+            empty.append((o.get('variant_number'), o.get('version')))
+
+    if empty:
+        return {'pass': False, 'score': 0,
+                'reason': f'editions with no {content_field}: {empty}'}
+    return {'pass': True, 'score': 1, 'reason': 'all editions have content'}
