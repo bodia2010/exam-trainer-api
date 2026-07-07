@@ -174,36 +174,39 @@ For each variant return a JSON object:
   "variant_number": <integer>,
   "version": "<short version label or null>",
   "audio_url": "<url or null>",
-  "question_pairs": [
-    {
-      "pair_audio_url": "<url or null>",
-      "dialogue": "<full dialogue text>",
-      "richtig_falsch": {
-        "number": <even question number>,
-        "statement": "<statement to judge>",
-        "answer": <true or false>
-      },
-      "multiple_choice": {
-        "number": <odd question number>,
-        "stem": "<question stem>",
-        "options": [
-          {"letter": "a", "text": "<text>"},
-          {"letter": "b", "text": "<text>"},
-          {"letter": "c", "text": "<text>"}
-        ],
-        "correct_letter": "<a|b|c>"
-      }
-    }
-  ]
+  "question_pairs": [<pair 1>, <pair 2>, <pair 3>]
+}
+question_pairs ALWAYS has exactly 3 entries, in that order. Each entry is
+EITHER a full pair object, OR the literal string "<<SAME_AS_ORIGINAL>>"
+(see DEDUPLICATION) — never omitted, never a partial object.
+
+A full pair object:
+{
+  "pair_audio_url": "<url or null>",
+  "dialogue": "<full dialogue text>",
+  "richtig_falsch": {
+    "number": <even question number>,
+    "statement": "<statement to judge>",
+    "answer": <true or false>
+  },
+  "multiple_choice": {
+    "number": <odd question number>,
+    "stem": "<question stem>",
+    "options": [
+      {"letter": "a", "text": "<text>"},
+      {"letter": "b", "text": "<text>"},
+      {"letter": "c", "text": "<text>"}
+    ],
+    "correct_letter": "<a|b|c>"
+  }
 }
 
 Rules:
-- Each variant has exactly 3 question pairs (e.g. 22+23, 24+25, 26+27)
 - audio_url: single URL at top of variant; null if absent
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
-- VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)") with its own full set of question pairs, output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original), self-contained dialogues and questions. A lone alternative wording of a single question is NOT an edition — keep the answered one.
-- SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
-- DEDUPLICATION: for a reworked edition (version is not null), if a question pair's "dialogue" would be word-for-word IDENTICAL to that same pair's dialogue in the original variant (version: null), do NOT retype it — output the literal string "<<SAME_AS_ORIGINAL>>" for that "dialogue" field instead. Only give "dialogue" its own value when the edition genuinely changes the spoken text. The original variant itself must always contain full dialogue text for all 3 pairs — never the placeholder.
+- VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)"), output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original). A lone alternative wording of a single question is NOT an edition — keep the answered one.
+- SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct edition — output exactly one object per block, in the same order, never merging or skipping a block. A block for a reworked edition often restates only the ONE pair that actually changed (e.g. just "Nummer 24 und 25") — that is normal, not an error; see DEDUPLICATION for how to fill the other two entries.
+- DEDUPLICATION: for a reworked edition (version is not null), any question_pairs entry the block doesn't restate, or restates word-for-word identically to the original variant's (version: null) same-position entry, MUST be the literal string "<<SAME_AS_ORIGINAL>>" — never a partial object, never omitted from the array. Give a pair its own full object only when the edition's block actually contains that pair's (possibly changed) content. The original variant itself must always contain full objects for all 3 pairs — never the placeholder.
 - Ignore lines of only digits (page numbers) and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
