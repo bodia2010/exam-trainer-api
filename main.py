@@ -9,6 +9,7 @@ from flask import Flask, request, jsonify, Response
 from markitdown import MarkItDown
 from prompts import PROMPTS
 import firebase_auth
+import firestore_client
 import tts
 
 app = Flask(__name__)
@@ -116,9 +117,19 @@ def _rate_limit_ok(uid: str) -> bool:
 @app.after_request
 def _cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     return response
+
+
+@app.route('/api/me', methods=['GET', 'OPTIONS'])
+def me():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    return jsonify({'isPremium': firestore_client.is_premium(uid)})
 
 
 @app.route('/api/convert', methods=['POST', 'OPTIONS'])
@@ -145,8 +156,12 @@ def convert():
         os.unlink(tmp_path)
 
 
-def _call_gemini(prompt: str, section_type: str = '') -> str:
-    api_key = os.environ.get('GEMINI_API_KEY', '')
+def _call_gemini(prompt: str, section_type: str = '', is_premium: bool = False) -> str:
+    # Free-tier users always run against a separate, free Gemini API key —
+    # its own quota is the actual cost ceiling, independent of anything a
+    # client requests. Premium spend only ever hits the paid key.
+    env_var = 'GEMINI_API_KEY' if is_premium else 'GEMINI_API_KEY_FREE'
+    api_key = os.environ.get(env_var, '')
     model = _gemini_model(section_type)
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
@@ -188,7 +203,9 @@ def parse():
 
     text = ''
     try:
-        text = _call_gemini(prompt, section_type).strip()
+        text = _call_gemini(
+            prompt, section_type, is_premium=firestore_client.is_premium(uid)
+        ).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
         # The discover prompt's numbered-line input ("00042: ...") sometimes
