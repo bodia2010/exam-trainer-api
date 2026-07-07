@@ -1,12 +1,14 @@
 import os
 import json
 import re
+import time
 import asyncio
 import tempfile
 import requests
 from flask import Flask, request, jsonify, Response
 from markitdown import MarkItDown
 from prompts import PROMPTS
+import firebase_auth
 import tts
 
 app = Flask(__name__)
@@ -75,15 +77,47 @@ def _cache_set(key: str, value: str):
     )
 
 
-def _check_auth():
-    return request.headers.get('X-App-Secret') == os.environ.get('APP_SECRET')
+def _authenticate():
+    """Returns the caller's Firebase UID, or None if unauthenticated."""
+    return firebase_auth.authenticate_request(request.headers)
+
+
+# Generous enough that even several full PDF imports (discovery + tens of
+# parse calls + per-variant-group cache lookups) comfortably fit in one
+# window, while still putting a hard, known ceiling on what a single
+# compromised/malicious account could cost — the problem the old single
+# shared APP_SECRET (embedded in every APK, extractable, unlimited) had no
+# answer for at all.
+_RATE_LIMIT_PER_HOUR = 1000
+
+
+def _rate_limit_ok(uid: str) -> bool:
+    if not _UPSTASH_URL:
+        return True  # rate limiting is a hardening layer, not a hard dependency
+    window = int(time.time() // 3600)
+    key = f'ratelimit|{uid}|{window}'
+    resp = requests.post(
+        f'{_UPSTASH_URL}/incr/{key}',
+        headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return True  # fail open — a flaky rate limiter must not take the API down
+    count = resp.json().get('result', 0)
+    if count == 1:
+        requests.post(
+            f'{_UPSTASH_URL}/expire/{key}/3600',
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            timeout=10,
+        )
+    return count <= _RATE_LIMIT_PER_HOUR
 
 
 @app.after_request
 def _cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-App-Secret'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     return response
 
 
@@ -91,8 +125,11 @@ def _cors(response):
 def convert():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-    if not _check_auth():
+    uid = _authenticate()
+    if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
+    if not _rate_limit_ok(uid):
+        return jsonify({'error': 'Rate limit exceeded'}), 429
 
     pdf_bytes = request.data
     with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as f:
@@ -133,8 +170,11 @@ def _call_gemini(prompt: str, section_type: str = '') -> str:
 def parse():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-    if not _check_auth():
+    uid = _authenticate()
+    if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
+    if not _rate_limit_ok(uid):
+        return jsonify({'error': 'Rate limit exceeded'}), 429
 
     body = request.get_json(force=True)
     markdown = body.get('markdown', '')
@@ -167,8 +207,11 @@ def parse():
 def cache_endpoint():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-    if not _check_auth():
+    uid = _authenticate()
+    if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
+    if not _rate_limit_ok(uid):
+        return jsonify({'error': 'Rate limit exceeded'}), 429
 
     if request.method == 'GET':
         content_hash = request.args.get('hash', '')
@@ -198,8 +241,11 @@ def cache_endpoint():
 def tts_endpoint():
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-    if not _check_auth():
+    uid = _authenticate()
+    if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
+    if not _rate_limit_ok(uid):
+        return jsonify({'error': 'Rate limit exceeded'}), 429
 
     body = request.get_json(force=True)
     text = (body.get('text') or '').strip()
