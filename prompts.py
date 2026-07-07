@@ -28,6 +28,7 @@ Common rules:
 - Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers
 - VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)". Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object. A lone alternative wording of a single question is NOT an edition — ignore it and keep the answered one.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
+- DEDUPLICATION: for a reworked edition (version is not null), if its "texts" or "option_pool" would be word-for-word IDENTICAL to the original variant's (version: null), do NOT retype them — output the literal string "<<SAME_AS_ORIGINAL>>" for that field instead. Only give "texts"/"option_pool" their own value when the edition genuinely changes that content. The original variant itself must always contain the full "texts" and "option_pool" — never the placeholder.
 - Never invent content: skip a question if its options or correct answer cannot be determined
 - De-hyphenate words the PDF split across a print line break (e.g. "Ausbildungs-\nkonzept" -> "Ausbildungskonzept") — texts must read as normal continuous prose, no stray hyphens or line breaks mid-word
 - Ignore page numbers (lines with only digits) and Russian meta-commentary
@@ -202,6 +203,7 @@ Rules:
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
 - VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)") with its own full set of question pairs, output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original), self-contained dialogues and questions. A lone alternative wording of a single question is NOT an edition — keep the answered one.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
+- DEDUPLICATION: for a reworked edition (version is not null), if a question pair's "dialogue" would be word-for-word IDENTICAL to that same pair's dialogue in the original variant (version: null), do NOT retype it — output the literal string "<<SAME_AS_ORIGINAL>>" for that "dialogue" field instead. Only give "dialogue" its own value when the edition genuinely changes the spoken text. The original variant itself must always contain full dialogue text for all 3 pairs — never the placeholder.
 - Ignore lines of only digits (page numbers) and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
@@ -287,6 +289,7 @@ Rules:
 - Question numbers are 46–51 (or 42–51 depending on variant)
 - VERSIONS: headers like "Sprachbausteine Teil 1 (вариант №3)(новая версия от …)" are reworked editions — output each as a SEPARATE object: same variant_number, distinct "version" label (null for the original), with its own complete letter_text, answers and all_options.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
+- DEDUPLICATION: for a reworked edition (version is not null), if its "letter_text" or "all_options" would be word-for-word IDENTICAL to the original variant's (version: null), do NOT retype them — output the literal string "<<SAME_AS_ORIGINAL>>" for that field instead. Only give it its own value when the edition genuinely changes that content. The original variant itself must always contain the full "letter_text" and "all_options" — never the placeholder.
 - Ignore page numbers and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
