@@ -1,1 +1,12 @@
 .vercel
+__pycache__/
+
+# Fixtures are extracted from copyrighted exam-prep PDFs — regenerate
+# locally with promptfoo/make_fixtures.py, never commit them.
+promptfoo/fixtures/*
+!promptfoo/fixtures/.gitkeep
+
+# promptfoo's own local eval history/cache, plus any eval output we
+# saved to disk — both can contain excerpts of the exam PDF content
+promptfoo/.promptfoo/
+promptfoo/results_*.json
