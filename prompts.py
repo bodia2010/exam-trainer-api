@@ -40,7 +40,77 @@ def _u(hint):
     return _UNIVERSAL.replace('{hint}', hint)
 
 
+# ─── Structure discovery ────────────────────────────────────────────────────
+# Instead of the client guessing section boundaries with regex anchors tied
+# to this one document's exact labeling ("Hören Teil 1" + the Russian word
+# "вариант"), Gemini scans the WHOLE document once (comfortably within its
+# 1M-token context) and finds every exercise instance by recognizing its
+# STRUCTURE — works regardless of language, label wording, or whether a
+# variant has a label at all. The client pre-numbers every line so Gemini
+# reports an exact line number instead of quoting text verbatim (unreliable
+# over a huge context) — trivial and exact to slice on the client.
+
+DISCOVER = """You are analyzing a German language exam practice document \
+(telc-style: Lesen, Hören, Schreiben, Sprachbausteine). It compiles many \
+practice variants of different exercise types, possibly labeled \
+inconsistently — different languages (German, Russian, English, or no \
+label at all), different numbering conventions, or no explicit "Teil N" \
+marker at all.
+
+Every line below is prefixed with a 5-digit, zero-padded line number and \
+": ", e.g. "00042: Hören Teil 1 (вариант №3)" (that line's number is 42). \
+Use ONLY these prefixes to report a position — never invent or estimate a \
+line number. In your JSON output, write start_line as a PLAIN integer with \
+NO leading zeros (42, not "00042" or 00042) — leading zeros make the \
+number invalid JSON.
+
+Find EVERY distinct practice-exercise instance (one variant of one \
+exercise type) in the document, and classify each into ONE of these \
+categories by RECOGNIZING ITS STRUCTURE, not just a literal label:
+
+- lesen_teil1: 5 people/statements matched to 8 short texts a-h (a matching exercise)
+- lesen_teil2: a longer workplace text, then a true/false question and a 3-option multiple-choice question
+- lesen_teil3: 4 person situations matched to 6 forum-reply texts a-f (or "no text fits")
+- lesen_teil4: a meeting-minutes/Protokoll text followed by 5 multiple-choice questions
+- beschwerde: an internal memo + a customer complaint letter, 2 multiple-choice questions, and a model reply letter
+- sprachbausteine_teil1: a formal letter with 6 numbered gaps filled from ONE shared word list (~10 words, same pool for every gap)
+- sprachbausteine_teil2: a formal letter with 6 numbered gaps, each gap having its OWN 3 options (a/b/c)
+- telefonnotiz: a phone-message monologue (a voicemail) with an answer key (caller name, phone number, reason for call)
+- hoeren_teil1: a short two-person dialogue, then a true/false question and a 3-option multiple-choice question — repeats 3 times per variant
+- hoeren_teil2: four short monologues/dialogues (numbered), each matched to one of six statements a-f
+- hoeren_teil3: one longer workplace conversation followed by 4 multiple-choice questions
+- hoeren_teil4: eight short phone announcements, each followed by its own multiple-choice question
+
+VERSIONS: the same variant sometimes reappears as a reworked edition \
+(marked "Новая версия", "Neue Version", a later date, "Другой вариант \
+ответов", or similar) — output each edition as its own separate item with \
+a distinct version_label; the original edition gets version_label: null. \
+A trivial reword of a single question (not the whole variant) is NOT a \
+separate edition — skip it.
+
+Between two exercises there is sometimes a non-exercise block — a table of \
+contents/summary page, a links-only reference section (Forumsbeitrag, \
+Sprechen/Mündliche Prüfung materials, "Antwortbögen"/"Struktur" link \
+lists), or Russian meta-commentary. The client uses each item's start_line \
+to also mark the PREVIOUS item's end, so an unmarked filler block would \
+silently get glued onto whichever exercise precedes it. To prevent that, \
+also emit a marker for the START of every such filler block: \
+{"section_type": "other", "start_line": <int>} (no variant_number/version_label needed).
+
+For each real exercise item found, return:
+{"section_type": "<one of the 12 keys above>", "variant_number": <integer — the variant's own printed number if there is one, else your best sequential guess>, "version_label": "<short label or null>", "start_line": <integer — the line-number prefix where this item's content begins>}
+
+Return ONLY a valid JSON array, ordered by start_line ascending. No \
+markdown wrapper, no explanation. If nothing genuinely matches a \
+category, don't include it — do not force a match.
+
+MARKDOWN:
+{markdown}"""
+
+
 PROMPTS = {
+
+'discover': DISCOVER,
 
 'lesen_teil1': _u("""Section: Lesen Teil 1 (matching headlines).
 Variants start with "Lesen Teil 1 (вариант №".

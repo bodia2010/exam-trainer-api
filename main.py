@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import asyncio
 import tempfile
 import requests
@@ -62,7 +63,10 @@ def _call_gemini(prompt: str) -> str:
         _GEMINI_URL,
         params={'key': api_key},
         json=payload,
-        timeout=45,
+        # The structure-discovery call sends the whole document (~150K
+        # tokens) — prefill of a context that large needs more room than
+        # our usual small per-variant calls.
+        timeout=100,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -91,6 +95,11 @@ def parse():
         text = _call_gemini(prompt).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        # The discover prompt's numbered-line input ("00042: ...") sometimes
+        # leaks zero-padded numbers straight into the JSON output
+        # ("start_line": 00042), which isn't valid JSON (leading zeros are
+        # illegal in JSON numbers) — strip them defensively.
+        text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
         return jsonify(json.loads(text))
     except json.JSONDecodeError as e:
         return jsonify({'error': f'Invalid JSON from Gemini: {e}', 'raw': text[:500]}), 500
