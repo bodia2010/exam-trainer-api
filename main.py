@@ -12,22 +12,40 @@ import tts
 app = Flask(__name__)
 
 _GEMINI_MODELS = {
-    # Tried gemini-2.5-flash-lite for discovery (cheaper, faster) but it
-    # reliably dropped the "other" filler-block markers even though it
-    # found a comparable number of real items — that reintroduces the
-    # runaway-chunk bug (an exercise's boundary swallowing a filler
-    # section into its own text). Not worth the ~7% cost saving. Keeping
-    # this dict so a future, better-tuned attempt is a one-line change.
+    # gemini-2.5-flash-lite was tried and rejected for discovery — it
+    # reliably dropped the "other" filler-block markers, reintroducing
+    # the runaway-chunk bug. gemini-3.1-flash-lite (default below) does
+    # not have that problem: verified via promptfoo/ across discovery
+    # and all 12 parse section types (24/24 passing, ~48% cheaper than
+    # 2.5 Flash on this workload). Empty for now — override a specific
+    # section_type here if a future model swap needs one.
 }
-_DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
+_DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite'
 
 
-def _gemini_url(section_type: str) -> str:
-    model = _GEMINI_MODELS.get(section_type, _DEFAULT_GEMINI_MODEL)
+def _gemini_model(section_type: str) -> str:
+    return _GEMINI_MODELS.get(section_type, _DEFAULT_GEMINI_MODEL)
+
+
+def _gemini_url(model: str) -> str:
     return (
         f'https://generativelanguage.googleapis.com/v1beta/models/'
         f'{model}:generateContent'
     )
+
+
+def _generation_config(model: str) -> dict:
+    # Gemini 3.x renamed the thinking-budget knob: it's a coarse
+    # thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH), not a token budget.
+    if model.startswith('gemini-3'):
+        return {
+            'temperature': 1,
+            'thinkingConfig': {'thinkingLevel': 'MINIMAL'},
+        }
+    return {
+        'temperature': 1,  # required when thinkingBudget=0
+        'thinkingConfig': {'thinkingBudget': 0},
+    }
 
 _UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL', '').rstrip('/')
 _UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
@@ -92,15 +110,13 @@ def convert():
 
 def _call_gemini(prompt: str, section_type: str = '') -> str:
     api_key = os.environ.get('GEMINI_API_KEY', '')
+    model = _gemini_model(section_type)
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': {
-            'temperature': 1,  # required when thinkingBudget=0
-            'thinkingConfig': {'thinkingBudget': 0},
-        },
+        'generationConfig': _generation_config(model),
     }
     resp = requests.post(
-        _gemini_url(section_type),
+        _gemini_url(model),
         params={'key': api_key},
         json=payload,
         # The structure-discovery call sends the whole document (~150K
