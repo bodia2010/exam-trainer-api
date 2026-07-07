@@ -28,6 +28,7 @@ Common rules:
 - Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers
 - VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)". Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object. A lone alternative wording of a single question is NOT an edition — ignore it and keep the answered one.
 - Never invent content: skip a question if its options or correct answer cannot be determined
+- De-hyphenate words the PDF split across a print line break (e.g. "Ausbildungs-\nkonzept" -> "Ausbildungskonzept") — texts must read as normal continuous prose, no stray hyphens or line breaks mid-word
 - Ignore page numbers (lines with only digits) and Russian meta-commentary
 - Return ONLY a valid JSON array of variant objects. No markdown wrapper, no explanation.
 
@@ -76,7 +77,7 @@ topic = the subject line (e.g. Putzdienst, Tischlampe).
 
 'sprachbausteine_teil2': _u("""Section: Sprachbausteine Teil 2 (letter with gaps 52-57).
 Variants start with "Sprachbausteine Teil 2 (вариант №".
-The letter shows answers inline like "52 (b - eine Bestellung)" — replace each with a [52]-style marker.
+The letter shows answers inline like "52 (b - eine Bestellung)" — replace the WHOLE thing with a [52]-style marker, including the answer text itself. Never leave the answer's own words also present as plain text right after the marker.
 - texts: one entry, title = the letter subject, content = the letter with [52]...[57] markers
 - questions 52-57: type "choice", text = "[<number>]", options = the printed a) b) c) lists, answer = the letter shown inline in the letter"""),
 
@@ -208,7 +209,8 @@ For each variant return:
 }
 
 Rules:
-- Inline blanks appear as "46 (e- sicher)" — convert to [46] markers in letter_text
+- Inline blanks appear as "46 (e- sicher)" — convert to [46] markers in letter_text. The marker fully REPLACES that whole inline chunk, including the answer word itself — never leave the word ALSO present as plain text right after the marker (e.g. "...mit Menschen, [49] sondern auch..." is WRONG if 49's answer is "SONDERN"; it must read "...mit Menschen, [49] auch...").
+- De-hyphenate words the PDF split across a print line break (e.g. "Ausbildungs-\nkonzept" -> "Ausbildungskonzept") — letter_text must read as normal continuous prose, no stray hyphens or line breaks mid-word.
 - Question numbers are 46–51 (or 42–51 depending on variant)
 - VERSIONS: headers like "Sprachbausteine Teil 1 (вариант №3)(новая версия от …)" are reworked editions — output each as a SEPARATE object: same variant_number, distinct "version" label (null for the original), with its own complete letter_text, answers and all_options.
 - Ignore page numbers and Russian meta-text
