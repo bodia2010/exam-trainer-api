@@ -202,17 +202,24 @@ def parse():
     premium = firestore_client.is_premium(uid)
 
     # The client only sends one variant group per section for free users,
-    # but that's a courtesy, not a boundary — a modified client (or a PDF
-    # crafted so every exercise in a section claims to be "variant 1") could
-    # send arbitrarily more. This is the one check that can't be bypassed by
-    # anything running on the device: normal single-variant groups (even
-    # ones with several reworked editions) run well under this in practice.
-    _FREE_TIER_MAX_CHARS = 20000
-    if not premium and section_type != 'discover' and len(markdown) > _FREE_TIER_MAX_CHARS:
-        return jsonify({
-            'error': 'Free tier content limit exceeded — upgrade to premium '
-                     'for full documents.'
-        }), 403
+    # but that's a courtesy, not a boundary — a modified client, or a PDF
+    # deliberately relabeled so many/all real exercises in a section claim
+    # to be "variant 1, edition <N>", could send arbitrarily more. Two
+    # independent checks, since either alone is gameable: enough small
+    # relabeled editions stay under the char cap, and padding one edition's
+    # text stays under the count cap. Both together track our real observed
+    # data — the largest legitimate single-variant group we've measured is
+    # ~10.3K chars across 6 editions (hoeren_teil1) — with real headroom
+    # above it, not against it.
+    _FREE_TIER_MAX_CHARS = 12000
+    _FREE_TIER_MAX_EDITIONS = 8
+    if not premium and section_type != 'discover':
+        edition_count = markdown.count('<<<ITEM>>>') + 1
+        if len(markdown) > _FREE_TIER_MAX_CHARS or edition_count > _FREE_TIER_MAX_EDITIONS:
+            return jsonify({
+                'error': 'Free tier content limit exceeded — upgrade to premium '
+                         'for full documents.'
+            }), 403
 
     prompt = prompt_template.replace('{markdown}', markdown)
 
