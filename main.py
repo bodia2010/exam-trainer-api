@@ -199,13 +199,26 @@ def parse():
     if not prompt_template:
         return jsonify({'error': f'Unknown section_type: {section_type}'}), 400
 
+    premium = firestore_client.is_premium(uid)
+
+    # The client only sends one variant group per section for free users,
+    # but that's a courtesy, not a boundary — a modified client (or a PDF
+    # crafted so every exercise in a section claims to be "variant 1") could
+    # send arbitrarily more. This is the one check that can't be bypassed by
+    # anything running on the device: normal single-variant groups (even
+    # ones with several reworked editions) run well under this in practice.
+    _FREE_TIER_MAX_CHARS = 20000
+    if not premium and section_type != 'discover' and len(markdown) > _FREE_TIER_MAX_CHARS:
+        return jsonify({
+            'error': 'Free tier content limit exceeded — upgrade to premium '
+                     'for full documents.'
+        }), 403
+
     prompt = prompt_template.replace('{markdown}', markdown)
 
     text = ''
     try:
-        text = _call_gemini(
-            prompt, section_type, is_premium=firestore_client.is_premium(uid)
-        ).strip()
+        text = _call_gemini(prompt, section_type, is_premium=premium).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
         # The discover prompt's numbered-line input ("00042: ...") sometimes
