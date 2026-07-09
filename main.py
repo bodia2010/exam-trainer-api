@@ -78,6 +78,17 @@ def _cache_set(key: str, value: str):
     )
 
 
+def _cache_key_type(key: str) -> str:
+    """Cache keys are rolling out a new `v14|<type>|<hash>` format (type is
+    one of doc/group/discover) but during the rollout some callers may still
+    send the old bare-hash keys with no '|' at all — those log as 'legacy'
+    rather than crashing on a missing segment."""
+    if '|' not in key:
+        return 'legacy'
+    parts = key.split('|')
+    return parts[1] if len(parts) >= 2 and parts[1] else 'unknown'
+
+
 def _authenticate():
     """Returns the caller's Firebase UID, or None if unauthenticated."""
     return firebase_auth.authenticate_request(request.headers)
@@ -255,7 +266,11 @@ def cache_endpoint():
         if not content_hash:
             return jsonify({'error': 'hash is required'}), 400
         cached = _cache_get(content_hash)
-        if cached is None:
+        hit = cached is not None
+        # Structured single-line log for scripts/cost_report.py / grepping
+        # `vercel logs` — key format matches GEMINI_USAGE's key=value shape.
+        print(f'CACHE_LOOKUP hit={hit} key_type={_cache_key_type(content_hash)}')
+        if not hit:
             return jsonify({'hit': False})
         return jsonify({'hit': True, 'value': json.loads(cached)})
 
