@@ -227,7 +227,22 @@ def parse():
     # above it, not against it.
     _FREE_TIER_MAX_CHARS = 12000
     _FREE_TIER_MAX_EDITIONS = 8
-    if not premium and section_type != 'discover':
+    # Discovery has no per-variant shape to bound (it's the whole document,
+    # numbered), so it needs its own cap instead of the char/edition pair
+    # above. No measured "largest legitimate document" data for this one
+    # yet (unlike the 10.3K/6-edition parse figure above) — 500K chars
+    # (~125K tokens) is a reasoned upper bound: comfortably above any exam
+    # PDF we've seen, while still bounding the worst-case free-tier cost of
+    # the single most expensive call in the whole pipeline. Revisit once
+    # Phase 1's usage logging shows real discover-input sizes.
+    _FREE_TIER_MAX_DISCOVER_CHARS = 500_000
+    if not premium and section_type == 'discover':
+        if len(markdown) > _FREE_TIER_MAX_DISCOVER_CHARS:
+            return jsonify({
+                'error': 'Free tier document too large for structure discovery '
+                         '— upgrade to premium for full documents.'
+            }), 403
+    elif not premium and section_type != 'discover':
         edition_count = markdown.count('<<<ITEM>>>') + 1
         if len(markdown) > _FREE_TIER_MAX_CHARS or edition_count > _FREE_TIER_MAX_EDITIONS:
             return jsonify({
