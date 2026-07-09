@@ -6,10 +6,14 @@ Vercel's 250MB unzipped-function limit (see main.py's MarkItDown/Gemini
 history). A Firebase ID token is a standard RS256 JWT signed by Google;
 PyJWT + its public JWKS endpoint verifies it in a few KB, no SDK needed.
 """
+import json
 import os
 
 import jwt
+import requests
 from jwt import PyJWKClient
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import service_account
 
 _PROJECT_ID = os.environ.get('FIREBASE_PROJECT_ID', '')
 _JWKS_URL = (
@@ -52,3 +56,57 @@ def authenticate_request(headers) -> str | None:
         return verify_id_token(token)
     except Exception:
         return None
+
+
+# --- Admin operation: account deletion --------------------------------
+#
+# Reuses the SAME service-account JSON already configured for
+# firestore_client.py (FIREBASE_SERVICE_ACCOUNT_JSON) rather than adding a
+# new secret. Google's Identity Platform REST API accepts a service-account
+# OAuth2 access token scoped to `identitytoolkit` for admin-authorized
+# operations (delete-by-uid) — this is the same mechanism the firebase-admin
+# SDK uses internally for `deleteUser()`, just called directly over REST so
+# we don't need the firebase-admin dependency (see firestore_client.py's
+# module docstring for why that SDK is avoided here: grpc/protobuf risk
+# Vercel's unzipped-function size limit).
+#
+# The alternative — deleting via the *user's own* ID token with
+# `accounts:delete?key=<web-api-key>` — was considered but rejected: it
+# would require introducing a brand-new secret (a Firebase Web API key) that
+# nothing else in this backend currently reads from the environment, whereas
+# this approach reuses credentials already proven to be configured in prod.
+_admin_credentials = None
+_service_account_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '')
+if _service_account_json:
+    _admin_credentials = service_account.Credentials.from_service_account_info(
+        json.loads(_service_account_json),
+        scopes=['https://www.googleapis.com/auth/identitytoolkit'],
+    )
+
+
+def _admin_access_token() -> str:
+    if not _admin_credentials.valid:
+        _admin_credentials.refresh(GoogleAuthRequest())
+    return _admin_credentials.token
+
+
+def delete_user(uid: str) -> bool:
+    """Deletes the Firebase Auth account for uid via the Identity Platform
+    admin REST API. Returns False on ANY failure (missing/misconfigured
+    credentials, network error, non-2xx response) — callers must treat
+    False as 'auth account NOT confirmed deleted' and surface that to the
+    caller rather than assume success."""
+    if not _admin_credentials:
+        return False
+    try:
+        resp = requests.post(
+            f'https://identitytoolkit.googleapis.com/v1/projects/'
+            f'{_PROJECT_ID}/accounts:delete',
+            headers={'Authorization': f'Bearer {_admin_access_token()}'},
+            json={'localId': uid},
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except Exception as e:
+        print(f'FIREBASE_AUTH_DELETE_ERROR uid={uid} {type(e).__name__}: {e}')
+        return False

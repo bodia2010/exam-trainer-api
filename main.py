@@ -143,6 +143,45 @@ def me():
     return jsonify({'isPremium': firestore_client.is_premium(uid)})
 
 
+@app.route('/api/account', methods=['DELETE', 'OPTIONS'])
+def account_delete():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Order matters: Firestore data first, then the Auth account. If we did
+    # it the other way round and the Firestore step then failed, the user
+    # would be locked out (Auth account gone) with their data still sitting
+    # in Firestore forever — unrecoverable by them, and undiscoverable by
+    # us since there's no account left to retry from. Deleting data first
+    # means a failure here is still fully retryable (this call is
+    # idempotent — a second attempt just finds already-empty
+    # subcollections and a missing root doc, both of which count as
+    # success).
+    if not firestore_client.delete_user_data(uid):
+        print(f'ACCOUNT_DELETE_ERROR uid={uid} stage=firestore')
+        return jsonify({
+            'error': 'Could not delete your data. Please try again or contact support.',
+        }), 500
+
+    if not firebase_auth.delete_user(uid):
+        # The harder failure mode: data is already gone but the login
+        # itself survives. Flagged distinctly (dataDeleted=True) so the
+        # client can tell the user their data really is gone and only the
+        # empty account shell needs a retry/support contact — not leave
+        # them thinking nothing happened.
+        print(f'ACCOUNT_DELETE_ERROR uid={uid} stage=auth')
+        return jsonify({
+            'error': 'Your data was deleted but the account could not be fully '
+                     'removed. Please try again or contact support.',
+            'dataDeleted': True,
+        }), 500
+
+    return jsonify({'ok': True})
+
+
 @app.route('/api/convert', methods=['POST', 'OPTIONS'])
 def convert():
     if request.method == 'OPTIONS':
