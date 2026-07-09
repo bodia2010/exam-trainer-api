@@ -162,7 +162,10 @@ def convert():
         result = MarkItDown().convert(tmp_path)
         return jsonify({'markdown': result.text_content})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # MarkItDown's raw exception can embed the local tmp file path —
+        # keep it server-side only, never in the client-facing response.
+        print(f'CONVERT_ERROR {type(e).__name__}: {e}')
+        return jsonify({'error': 'Could not convert this PDF.'}), 500
     finally:
         os.unlink(tmp_path)
 
@@ -246,9 +249,11 @@ def parse():
         text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
         return jsonify(json.loads(text))
     except json.JSONDecodeError as e:
-        return jsonify({'error': f'Invalid JSON from Gemini: {e}', 'raw': text[:500]}), 500
+        print(f'PARSE_JSON_ERROR {e}: raw={text[:500]!r}')
+        return jsonify({'error': 'Gemini returned malformed data — please retry.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f'PARSE_ERROR {type(e).__name__}: {e}')
+        return jsonify({'error': 'Could not parse this section.'}), 500
 
 
 @app.route('/api/cache', methods=['GET', 'POST', 'OPTIONS'])
@@ -312,4 +317,5 @@ def tts_endpoint():
         audio_bytes = asyncio.run(tts.synthesize(text, voice))
         return Response(audio_bytes, mimetype='audio/mpeg')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f'TTS_ERROR {type(e).__name__}: {e}')
+        return jsonify({'error': 'Could not generate audio for this line.'}), 500
