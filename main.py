@@ -131,6 +131,79 @@ def me():
     return jsonify({'isPremium': firestore_client.is_premium(uid)})
 
 
+@app.route('/api/device', methods=['POST', 'OPTIONS'])
+def device():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    body = request.get_json(force=True)
+    device_id = (body.get('deviceId') or '').strip()
+    device_name = (body.get('deviceName') or 'Unknown Device').strip()
+    if not device_id:
+        return jsonify({'error': 'deviceId is required'}), 400
+
+    allowed = firestore_client.check_and_register_device(uid, device_id, device_name)
+    return jsonify({'allowed': allowed})
+
+
+@app.route('/api/device/force', methods=['POST', 'OPTIONS'])
+def device_force():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    body = request.get_json(force=True)
+    device_id = (body.get('deviceId') or '').strip()
+    device_name = (body.get('deviceName') or 'Unknown Device').strip()
+    if not device_id:
+        return jsonify({'error': 'deviceId is required'}), 400
+
+    firestore_client.force_register_device(uid, device_id, device_name)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/courses', methods=['GET', 'POST', 'OPTIONS'])
+def courses():
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if request.method == 'GET':
+        raw_courses = firestore_client.list_courses(uid)
+        parsed = []
+        for raw in raw_courses:
+            try:
+                parsed.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+        return jsonify({'courses': parsed})
+
+    body = request.get_json(force=True)
+    course = body.get('course')
+    if not isinstance(course, dict) or not course.get('id'):
+        return jsonify({'error': 'course with an id is required'}), 400
+    saved = firestore_client.save_course(uid, course['id'], json.dumps(course))
+    return jsonify({'saved': saved})
+
+
+@app.route('/api/courses/<course_id>', methods=['DELETE', 'OPTIONS'])
+def course_delete(course_id):
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+    uid = _authenticate()
+    if not uid:
+        return jsonify({'error': 'Unauthorized'}), 401
+    firestore_client.delete_course(uid, course_id)
+    return jsonify({'ok': True})
+
+
 @app.route('/api/account', methods=['DELETE', 'OPTIONS'])
 def account_delete():
     if request.method == 'OPTIONS':
