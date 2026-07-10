@@ -20,7 +20,12 @@ import generation_config  # noqa: E402
 
 def call_api(prompt, options, context):
     section_type = context['vars'].get('section_type', 'discover')
-    model = options.get('config', {}).get('model', 'gemini-3.1-flash-lite')
+    # No YAML `model:` config → the exact model production would use for
+    # this section_type (generation_config.model_for), so the default
+    # eval run can never drift from prod. An explicit YAML `model:` still
+    # wins, for deliberate A/B comparison runs.
+    model = (options.get('config', {}).get('model')
+             or generation_config.model_for(section_type))
     api_key = os.environ.get('GOOGLE_API_KEY', '')
     if not api_key:
         return {'error': 'GOOGLE_API_KEY is not set'}

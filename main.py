@@ -15,20 +15,12 @@ import tts
 
 app = Flask(__name__)
 
-_GEMINI_MODELS = {
-    # gemini-2.5-flash-lite was tried and rejected for discovery — it
-    # reliably dropped the "other" filler-block markers, reintroducing
-    # the runaway-chunk bug. gemini-3.1-flash-lite (default below) does
-    # not have that problem: verified via promptfoo/ across discovery
-    # and all 12 parse section types (24/24 passing, ~48% cheaper than
-    # 2.5 Flash on this workload). Empty for now — override a specific
-    # section_type here if a future model swap needs one.
-}
-_DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite'
-
-
-def _gemini_model(section_type: str) -> str:
-    return _GEMINI_MODELS.get(section_type, _DEFAULT_GEMINI_MODEL)
+# Model choice lives in generation_config.py next to the rest of the
+# generation settings — single source of truth shared with the promptfoo
+# eval provider, so an eval can never silently test a different model
+# than what's deployed (discovery notably runs on a stronger model than
+# the parse calls; see the MODELS comment there for the evidence).
+_gemini_model = generation_config.model_for
 
 
 def _gemini_url(model: str) -> str:

@@ -10,10 +10,12 @@ providers:
   # gemini_schema_provider.py: it imports ../generation_config.py, the
   # exact function main.py calls, so this can never silently test
   # something other than what's actually deployed.
+  # No model: pin — the provider asks generation_config.model_for() for
+  # the exact model production uses for each section_type (discovery runs
+  # on a stronger model than parse; see generation_config.MODELS). Pin a
+  # model: here only for deliberate A/B comparison runs.
   - id: 'python:gemini_schema_provider.py'
-    label: flash-lite-3.1-production
-    config:
-      model: gemini-3.1-flash-lite
+    label: production-config
 
 defaultTest:
   assert:

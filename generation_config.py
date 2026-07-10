@@ -1,10 +1,37 @@
-"""Builds Gemini `generationConfig` — pulled out of main.py so tooling
-(the promptfoo eval provider) can import the exact same logic without
-dragging in Flask/Firebase/Upstash. main.py imports this too, so there
-is exactly one place this ever gets decided — an eval run can never
-silently diverge from what's actually deployed.
+"""Builds Gemini `generationConfig` and picks the model per section type —
+pulled out of main.py so tooling (the promptfoo eval provider) can import
+the exact same logic without dragging in Flask/Firebase/Upstash. main.py
+imports this too, so there is exactly one place this ever gets decided —
+an eval run can never silently diverge from what's actually deployed.
 """
 from response_schemas import schema_for
+
+DEFAULT_MODEL = 'gemini-3.1-flash-lite'
+
+# Per-section model overrides. gemini-2.5-flash-lite was tried and
+# rejected for discovery — it reliably dropped the "other" filler-block
+# markers, reintroducing the runaway-chunk bug. gemini-3.1-flash-lite
+# (the default) parses all 12 section types well, but proved structurally
+# unable to segment DISCOVERY reliably: on a real 223K-token compilation
+# it fragmented "Hören Teil 4 вариант 1" into 7 entries (spurious
+# boundaries at single-question correction blocks AND at plain content
+# lines, plus a fabricated version label), byte-identically across runs
+# and across every prompt rewording tried; raising thinkingLevel to LOW
+# made it strictly worse (6 fragments, four invented labels). The client
+# slices chunks at every discovered boundary, so each spurious entry
+# silently truncates a real exercise. gemini-3.5-flash on the identical
+# input produced exactly one entry per variant with correct boundaries,
+# stable across repeated runs (see DISCOVERY_BUG_ANALYSIS.md). Discovery
+# is one call per unique document and its result is cached without TTL,
+# so the price delta is a one-time cents-level cost per new PDF.
+MODELS = {
+    'discover': 'gemini-3.5-flash',
+}
+
+
+def model_for(section_type: str) -> str:
+    return MODELS.get(section_type, DEFAULT_MODEL)
+
 
 # Content-heavy section types (several full letters, or several separate
 # audio transcripts + their own questions each) reliably drop content at
