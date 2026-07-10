@@ -1,1 +1,7 @@
-{}
+{
+  "functions": {
+    "main.py": {
+      "maxDuration": 180
+    }
+  }
+}
