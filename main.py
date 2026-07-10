@@ -268,15 +268,19 @@ def parse():
     _FREE_TIER_MAX_EDITIONS = 8
     # Discovery has no per-variant shape to bound (it's the whole document,
     # numbered), so it needs its own cap instead of the char/edition pair
-    # above. No measured "largest legitimate document" data for this one
-    # yet (unlike the 10.3K/6-edition parse figure above) — 500K chars
-    # (~125K tokens) is a reasoned upper bound: comfortably above any exam
-    # PDF we've seen, while still bounding the worst-case free-tier cost of
-    # the single most expensive call in the whole pipeline. Revisit once
-    # Phase 1's usage logging shows real discover-input sizes.
-    _FREE_TIER_MAX_DISCOVER_CHARS = 500_000
+    # above. First value (500K chars) was a guess with no real data behind
+    # it and turned out too tight — a real telc B2 Beruf PDF's extracted
+    # markdown routinely lands well above that (MarkItDown's layout/table
+    # handling is verbose). 2M chars (~500K tokens) gives real headroom
+    # above any legitimate document while still bounding the worst-case
+    # free-tier cost of the single most expensive call in the pipeline.
+    # Logs the actual size on rejection now, so the next tuning pass has
+    # real numbers instead of another guess.
+    _FREE_TIER_MAX_DISCOVER_CHARS = 2_000_000
     if not premium and section_type == 'discover':
         if len(markdown) > _FREE_TIER_MAX_DISCOVER_CHARS:
+            print(f'DISCOVER_SIZE_REJECTED chars={len(markdown)} '
+                  f'limit={_FREE_TIER_MAX_DISCOVER_CHARS}')
             return jsonify({
                 'error': 'Free tier document too large for structure discovery '
                          '— upgrade to premium for full documents.'
