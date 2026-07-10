@@ -8,6 +8,7 @@ import requests
 from flask import Flask, request, jsonify, Response
 from markitdown import MarkItDown
 from prompts import PROMPTS
+import generation_config
 import firebase_auth
 import firestore_client
 import tts
@@ -36,19 +37,6 @@ def _gemini_url(model: str) -> str:
         f'{model}:generateContent'
     )
 
-
-def _generation_config(model: str) -> dict:
-    # Gemini 3.x renamed the thinking-budget knob: it's a coarse
-    # thinkingLevel (MINIMAL/LOW/MEDIUM/HIGH), not a token budget.
-    if model.startswith('gemini-3'):
-        return {
-            'temperature': 1,
-            'thinkingConfig': {'thinkingLevel': 'MINIMAL'},
-        }
-    return {
-        'temperature': 1,  # required when thinkingBudget=0
-        'thinkingConfig': {'thinkingBudget': 0},
-    }
 
 _UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL', '').rstrip('/')
 _UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
@@ -209,6 +197,18 @@ def convert():
         os.unlink(tmp_path)
 
 
+class GeminiError(Exception):
+    """Carries only a status code + a message safe to show a client.
+    requests' HTTPError.__str__ embeds the full request URL — which
+    includes '?key=<api_key>' since the key is passed as a query param —
+    so it must never be allowed to propagate to jsonify({'error': str(e)})
+    verbatim, or the API key leaks straight into the app's error UI."""
+
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def _call_gemini(prompt: str, section_type: str = '', is_premium: bool = False) -> str:
     # Free-tier users always run against a separate, free Gemini API key —
     # its own quota is the actual cost ceiling, independent of anything a
@@ -218,20 +218,60 @@ def _call_gemini(prompt: str, section_type: str = '', is_premium: bool = False) 
     model = _gemini_model(section_type)
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
-        'generationConfig': _generation_config(model),
+        'generationConfig': generation_config.build(model, section_type),
     }
-    resp = requests.post(
-        _gemini_url(model),
-        params={'key': api_key},
-        json=payload,
-        # The structure-discovery call sends the whole document (~150K
-        # tokens) — prefill of a context that large needs more room than
-        # our usual small per-variant calls.
-        timeout=100,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data['candidates'][0]['content']['parts'][0]['text']
+
+    # 503 (model momentarily overloaded, unrelated to any per-key quota) is
+    # usually a several-second blip — worth one short retry here. 429
+    # (quota) is a different story: Gemini's own error tells us to wait
+    # ~15-20s, far longer than makes sense to hold a serverless function
+    # open for — the client already retries with exactly that kind of
+    # delay (see ParseService._parseWithRetry), so 429 fails fast here and
+    # lets the client's longer-horizon retry handle it instead of two
+    # short, ineffective waits stacking on top of each other.
+    last_status = 500
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                _gemini_url(model),
+                params={'key': api_key},
+                json=payload,
+                # The structure-discovery call sends the whole document
+                # (~150K tokens) — prefill of a context that large needs
+                # more room than our usual small per-variant calls.
+                timeout=100,
+            )
+        except requests.RequestException as e:
+            raise GeminiError(502, f'Could not reach Gemini: {type(e).__name__}') from e
+
+        if resp.status_code == 200:
+            data = resp.json()
+            # Structured single-line log for scripts/cost_report.py (and
+            # `vercel logs | grep GEMINI_USAGE`) to parse — keep the tag and
+            # key=value shape in sync with that script if either changes.
+            # usageMetadata (and any of its three fields) can be absent from
+            # the response; default everything to 0 rather than let a
+            # missing key blow up a successful parse.
+            usage = data.get('usageMetadata') or {}
+            print(
+                'GEMINI_USAGE '
+                f'section_type={section_type or "unknown"} '
+                f'tariff={"premium" if is_premium else "free"} '
+                f'prompt_tokens={usage.get("promptTokenCount", 0)} '
+                f'candidates_tokens={usage.get("candidatesTokenCount", 0)} '
+                f'thoughts_tokens={usage.get("thoughtsTokenCount", 0)}'
+            )
+            return data['candidates'][0]['content']['parts'][0]['text']
+
+        last_status = resp.status_code
+        if resp.status_code == 503 and attempt < 2:
+            time.sleep(2 * (attempt + 1))
+            continue
+        break
+
+    if last_status == 429:
+        raise GeminiError(429, 'Gemini rate limit reached — please try again in a moment.')
+    raise GeminiError(502, f'Gemini request failed (HTTP {last_status}).')
 
 
 @app.route('/api/parse', methods=['POST', 'OPTIONS'])
@@ -300,12 +340,23 @@ def parse():
         text = _call_gemini(prompt, section_type, is_premium=premium).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
-        # The discover prompt's numbered-line input ("00042: ...") sometimes
-        # leaks zero-padded numbers straight into the JSON output
-        # ("start_line": 00042), which isn't valid JSON (leading zeros are
-        # illegal in JSON numbers) — strip them defensively.
-        text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
+        if section_type == 'discover':
+            # The discover prompt's numbered-line input ("00042: ...")
+            # sometimes leaked zero-padded numbers straight into the JSON
+            # output ("start_line": 00042), which isn't valid JSON
+            # (leading zeros are illegal in JSON numbers) — strip them
+            # defensively. Scoped to discover ONLY: this used to run
+            # unconditionally on every section_type's response, which
+            # meant a parsed dialogue/letter containing a clock time like
+            # "16:05," (colon, leading zero, delimiter — the same shape
+            # this regex targets) would get silently mangled to "16:5,".
+            # responseSchema on the discover call (see response_schemas.py)
+            # should make this unreachable going forward — kept as a
+            # harmless fallback rather than removed outright.
+            text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
         return jsonify(json.loads(text))
+    except GeminiError as e:
+        return jsonify({'error': str(e)}), e.status_code
     except json.JSONDecodeError as e:
         print(f'PARSE_JSON_ERROR {e}: raw={text[:500]!r}')
         return jsonify({'error': 'Gemini returned malformed data — please retry.'}), 500
