@@ -4,37 +4,53 @@ prompts:
   - file://prompt_discover.py:get_prompt
 
 providers:
-  - id: google:gemini-2.5-flash
-    label: flash-2.5-current
+  # Custom provider, not the built-in google:<model> — see
+  # gemini_schema_provider.py. Discovery is schema-enforced now too
+  # (response_schemas.py's DISCOVER_SCHEMA), which the built-in provider
+  # had no way to apply.
+  - id: 'python:gemini_schema_provider.py'
+    label: flash-lite-3.1-production
     config:
-      generationConfig:
-        temperature: 1
-        thinkingConfig:
-          thinkingBudget: 0
-
-  - id: google:gemini-2.5-flash-lite
-    label: flash-lite-2.5-known-bad
-    config:
-      generationConfig:
-        temperature: 1
-        thinkingConfig:
-          thinkingBudget: 0
-
-  - id: google:gemini-3.1-flash-lite
-    label: flash-lite-3.1-candidate
-    config:
-      generationConfig:
-        temperature: 1
-        thinkingConfig:
-          thinkingLevel: MINIMAL
+      model: gemini-3.1-flash-lite
 
 tests:
   - description: "Full document — must find 'other' markers and a realistic item count"
     vars:
+      section_type: discover
       markdown: file://fixtures/discover_input.txt
-      min_items: 150
+      # Recalibrated 2026-07-09 (was 150): today's fix taught discovery
+      # to stop counting a single-question answer correction as its own
+      # edition (see the regression test below) — that was previously
+      # inflating the real count on documents with several such
+      # corrections, so a lower true count post-fix is the intended
+      # result, not a regression. Floor set with ~10% headroom below the
+      # 122 items found on this fixture right after the fix landed.
+      min_items: 110
     assert:
       - type: python
         value: file://assertions.py:other_markers_present
       - type: python
         value: file://assertions.py:item_count_at_least
+
+  # Synthetic regression fixture (committed to git, not extracted from
+  # the real exam PDF) for the exact bug this pipeline hit twice in
+  # production: a "Варианты ответов от <date>"-style correction to ONE
+  # already-numbered question was being discovered as if it started a
+  # whole new edition, splitting one variant's content into pieces and
+  # starving the real object of its own questions/texts downstream.
+  #
+  # Measured ~1-in-3 flaky on this fixture even after the prompt fix
+  # (discovery runs at temperature=1, deliberately — see
+  # generation_config.py). That's an accepted, monitored risk, not a
+  # regression to chase to zero: a parse-level schema mismatch downstream
+  # (response_schemas.py) still catches the resulting malformed object
+  # before it reaches a user, per parse_service.dart's validation+retry.
+  # Treat a single failed run here as inconclusive; a NEW, consistent
+  # failure across several runs is the actual signal to investigate.
+  - description: "Single-question answer corrections must not split a variant into extra items"
+    vars:
+      section_type: discover
+      markdown: file://regression_fixtures/discover_single_question_correction.txt
+    assert:
+      - type: python
+        value: file://assertions.py:single_question_correction_not_split

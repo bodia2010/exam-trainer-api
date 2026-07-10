@@ -4,10 +4,24 @@ pipeline has actually hit (not generic "looks reasonable" checks):
   during discovery, reintroducing the runaway-chunk bug.
 - Batched parse calls silently collapsed multiple distinct editions
   into fewer output objects than discovery found.
-- The DEDUPLICATION sentinel leaking where it shouldn't (the original
-  variant, version: null, must never carry it).
+- The DEDUPLICATION sentinel leaking where it shouldn't (retired
+  system-wide now that every type is schema-enforced — kept as a
+  regression guard in case a future prompt edit reintroduces it).
+- 'texts' coming back empty and question arrays short of the official
+  count (5/8 for hoeren_teil4, 1/2 for beschwerde) — inconsistent across
+  retries of the identical input under free-form generation; this is
+  what response_schemas.py's minItems/maxItems now exists to prevent.
+- A single already-numbered question getting a later "Варианты ответов
+  от <date>"-style answer correction — discovery used to (mis)treat this
+  as marking a whole new edition, splitting one variant's content across
+  chunks and starving the real one of its own questions/texts.
 """
 import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from response_schemas import _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
 
 
 def _parse(output):
@@ -138,3 +152,73 @@ def editions_have_content(output, context):
         return {'pass': False, 'score': 0,
                 'reason': f'editions with no {content_field}: {empty}'}
     return {'pass': True, 'score': 1, 'reason': 'all editions have content'}
+
+
+def expected_question_count(output, context):
+    """Every object of a universal-schema section type must have EXACTLY
+    the official telc question count (response_schemas.py's own
+    _UNIVERSAL_QUESTION_COUNTS — same source of truth production reads,
+    so this can't silently drift from what's actually enforced). No-op
+    for section types outside that schema (hoeren_teil1, telefonnotiz,
+    sprachbausteine_teil1 have their own shapes/checks)."""
+    section_type = context['vars'].get('section_type')
+    expected = _UNIVERSAL_QUESTION_COUNTS.get(section_type)
+    if expected is None:
+        return {'pass': True, 'score': 1, 'reason': 'not a universal-schema section type'}
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+    bad = [
+        (o.get('variant_number'), o.get('version'), len(o.get('questions', [])))
+        for o in objects
+        if len(o.get('questions', [])) != expected
+    ]
+    if bad:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected {expected} questions, got: {bad}'}
+    return {'pass': True, 'score': 1, 'reason': f'all objects have exactly {expected} questions'}
+
+
+def texts_not_empty(output, context):
+    """Every object of a universal-schema section type must have a
+    non-empty 'texts' array — this is the exact shape the 'reading
+    passage/transcript is missing' production failures took (Beschwerde,
+    Hören Teil 3), which schema enforcement's minItems:1 now exists to
+    make structurally impossible."""
+    section_type = context['vars'].get('section_type')
+    if section_type not in _UNIVERSAL_QUESTION_COUNTS:
+        return {'pass': True, 'score': 1, 'reason': 'not a universal-schema section type'}
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+    empty = [
+        (o.get('variant_number'), o.get('version'))
+        for o in objects
+        if not o.get('texts')
+    ]
+    if empty:
+        return {'pass': False, 'score': 0, 'reason': f'objects with empty texts: {empty}'}
+    return {'pass': True, 'score': 1, 'reason': 'all objects have non-empty texts'}
+
+
+def single_question_correction_not_split(output, context):
+    """Discovery regression check for the exact bug this pipeline hit
+    twice in production: a label like "Варианты ответов от <date>" right
+    after ONE already-numbered question is a correction to that
+    question's answer, not a new edition — it must NOT get its own
+    discovered item. The fixture this runs against
+    (regression_fixtures/discover_single_question_correction.txt) embeds
+    exactly two real variants (one hoeren_teil4, one beschwerde), each
+    containing one such correction — so discovery must report exactly 2
+    real items, not 4."""
+    try:
+        items = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+    real = [i for i in items if i.get('section_type') != 'other']
+    ok = len(real) == 2
+    return {'pass': ok, 'score': 1 if ok else 0,
+            'reason': f'{len(real)} real item(s) found (expected exactly 2 — a '
+                      f'single-question correction must not split a variant): {real}'}

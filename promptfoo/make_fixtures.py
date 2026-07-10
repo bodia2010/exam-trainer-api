@@ -9,7 +9,21 @@ Not committed to git (see ../.gitignore) — the source PDF is copyrighted
 exam-prep material, so neither it nor its extracted text belongs in a
 public repo. Run this once locally whenever you need fresh fixtures:
 
-    APP_SECRET=... python3 make_fixtures.py /path/to/your.pdf
+    FIREBASE_ID_TOKEN=... python3 make_fixtures.py /path/to/your.pdf
+
+The backend authenticates every request with a Firebase ID token now
+(APP_SECRET was retired — see the 'replace shared APP_SECRET with
+Firebase Auth' commit), not the old shared secret this script used to
+send as X-App-Secret. Get a token by signing in through the app itself
+and grabbing it, or via curl against the Identity Toolkit REST API:
+
+    curl -s -X POST \\
+      "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<WEB_API_KEY>" \\
+      -d '{"email":"you@example.com","password":"...","returnSecureToken":true}' \\
+      | python3 -c "import json,sys; print(json.load(sys.stdin)['idToken'])"
+
+A token is valid for about an hour — re-run that if this script starts
+getting 401s partway through.
 """
 import json
 import os
@@ -28,9 +42,9 @@ SECTION_TYPES = [
 
 
 def call(path, **kwargs):
-    secret = os.environ['APP_SECRET']
+    token = os.environ['FIREBASE_ID_TOKEN']
     headers = kwargs.pop('headers', {})
-    headers['X-App-Secret'] = secret
+    headers['Authorization'] = f'Bearer {token}'
     resp = requests.post(f'{API_BASE}{path}', headers=headers, timeout=150, **kwargs)
     resp.raise_for_status()
     return resp.json()

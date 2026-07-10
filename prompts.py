@@ -26,10 +26,11 @@ For each variant return a JSON object:
 Common rules:
 - Use only the question types the section description above specifies; option_pool is [] unless it says otherwise
 - Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers
-- VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)". Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object. A lone alternative wording of a single question is NOT an edition — ignore it and keep the answered one.
+- VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)", where the rework covers MULTIPLE questions. Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object.
+- A label like "Новый вариант от <date>" or "Варианты ответов от <date>" placed right after ONE SINGLE already-numbered question, giving that ONE question new a)/b)/c) options, is NOT an edition — it's a later correction to that one question, and the whole variant stays ONE object. Between the two option blocks for that question number, use whichever one has a clearly marked "– 100%"/correct answer; if one block has an incomplete option (a blank option, or one ending in "?"), it is not usable — use the other block. Never output two objects, and never two competing answers for the same question number, over a single-question correction like this.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
-- DEDUPLICATION: for a reworked edition (version is not null), if its "texts" or "option_pool" would be word-for-word IDENTICAL to the original variant's (version: null), do NOT retype them — output the literal string "<<SAME_AS_ORIGINAL>>" for that field instead. Only give "texts"/"option_pool" their own value when the edition genuinely changes that content. The original variant itself must always contain the full "texts" and "option_pool" — never the placeholder.
-- Never invent content: skip a question if its options or correct answer cannot be determined
+- Every edition (including reworked ones) must contain its OWN full "texts" and "option_pool" — repeat the identical content word-for-word if it doesn't change between editions. Never leave these empty or shortened, and never use a placeholder in place of the real content.
+- The response format requires EXACTLY the number of questions the section description above specifies, every time, for every edition — never fewer. Never invent facts, but every required question slot must still get its best-supported answer from context; if a marker is ambiguous, use the most clearly-marked or most complete option rather than omitting the question.
 - De-hyphenate words the PDF split across a print line break (e.g. "Ausbildungs-\nkonzept" -> "Ausbildungskonzept") — texts must read as normal continuous prose, no stray hyphens or line breaks mid-word
 - Ignore page numbers (lines with only digits) and Russian meta-commentary
 - Return ONLY a valid JSON array of variant objects. No markdown wrapper, no explanation.
@@ -85,10 +86,23 @@ categories by RECOGNIZING ITS STRUCTURE, not just a literal label:
 
 VERSIONS: the same variant sometimes reappears as a reworked edition \
 (marked "Новая версия", "Neue Version", a later date, "Другой вариант \
-ответов", or similar) — output each edition as its own separate item with \
-a distinct version_label; the original edition gets version_label: null. \
-A trivial reword of a single question (not the whole variant) is NOT a \
-separate edition — skip it.
+ответов", "Старый вариант вопросов", or similar) — output each edition as \
+its own separate item with a distinct version_label; the original edition \
+gets version_label: null. This includes a listening/reading section where \
+the same recording or text is followed by a SECOND, different set of \
+MULTIPLE questions immediately after the first (a reworked question set \
+covering most/all of the variant's questions, not a reworked passage) — \
+that second set is its own edition too, marked at wherever ITS OWN \
+questions begin, not the shared passage above them.
+
+Do NOT treat this as a new edition, and do NOT emit a start_line for it: \
+a label like "Варианты ответов от <date>" that appears right after ONE \
+SINGLE already-numbered question and gives only THAT question new answer \
+options — this is a later correction to one question's answer, not a \
+reworked edition. Leave it inside the same item as the question it \
+corrects. A trivial reword of a single question is likewise NOT a \
+separate edition — skip it. Only a block reworking MULTIPLE questions at \
+once counts as an edition.
 
 Between two exercises there is sometimes a non-exercise block — a table of \
 contents/summary page, a links-only reference section (Forumsbeitrag, \
@@ -157,14 +171,16 @@ The letter shows answers inline like "52 (b - eine Bestellung)" — replace the 
 Variants start with "Hören Teil 3 (вариант №".
 audio_url = the "Ссылка на запись" telegram link.
 - texts: the conversation transcript, title = the topic after "Nummer 32-35"
-- questions 32-35: type "choice" with a) b) c). Prefer the question set whose answers are known; skip questions with incomplete options (e.g. "c) ?")."""),
+- questions 32-35: type "choice" with a) b) c)
+- The same conversation sometimes has TWO question sets back to back — a current one and an older one (labeled "Старый вариант вопросов" or similar), where one set has an incomplete/unanswerable option (e.g. "c) ?") and the other has all 4 answers clearly known. Do NOT merge or choose between them in one object — that always means an edition, exactly like VERSIONS above: output the fully-answered set as one object and the other as its own object with a distinct version label, both sharing variant_number, texts and audio_url via DEDUPLICATION. Every question in every edition must have a determinable answer — never output a question with no answer."""),
 
 'hoeren_teil4': _u("""Section: Hören Teil 4 (short phone messages).
 Variants start with "Hören Teil 4 (вариант №".
 audio_url = the telegram link near the header.
 Eight messages "Nummer 36".."Nummer 43", each followed by a choice question with the same number.
 - texts: one entry per message, title = "Nummer <N> <name>", content = the message transcript
-- questions 36-43: type "choice" with a) b) c); the correct option is marked "– 100%\""""),
+- questions 36-43: type "choice" with a) b) c); the correct option is marked "– 100%"
+- A question sometimes has a SECOND a) b) c) block right after it, introduced by "Варианты ответов от <date>" — this is a later correction to that ONE question's answer, not a new variant. Pick whichever block has a clearly marked "– 100%" answer; if a block has an incomplete option (a blank line after "b)", or "c) ?" with no text), it is not usable — use the other block instead. Output exactly ONE answer per question number, 8 questions total — never two objects and never two competing answers for the same number."""),
 
 'hoeren_teil1': """Parse German B2 Beruf exam Hören Teil 1 exercises from the Markdown below.
 
@@ -176,9 +192,11 @@ For each variant return a JSON object:
   "audio_url": "<url or null>",
   "question_pairs": [<pair 1>, <pair 2>, <pair 3>]
 }
-question_pairs ALWAYS has exactly 3 entries, in that order. Each entry is
-EITHER a full pair object, OR the literal string "<<SAME_AS_ORIGINAL>>"
-(see DEDUPLICATION) — never omitted, never a partial object.
+question_pairs ALWAYS has exactly 3 entries, in that order, and EVERY
+entry is always a full pair object — never omitted, never a partial
+object, never a placeholder string, even when a reworked edition's block
+only restates one pair's content (see DEDUPLICATION below for what to do
+with the other two).
 
 A full pair object:
 {
@@ -206,7 +224,7 @@ Rules:
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
 - VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)"), output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original). A lone alternative wording of a single question is NOT an edition — keep the answered one.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct edition — output exactly one object per block, in the same order, never merging or skipping a block. A block for a reworked edition often restates only the ONE pair that actually changed (e.g. just "Nummer 24 und 25") — that is normal, not an error; see DEDUPLICATION for how to fill the other two entries.
-- DEDUPLICATION: for a reworked edition (version is not null), any question_pairs entry the block doesn't restate, or restates word-for-word identically to the original variant's (version: null) same-position entry, MUST be the literal string "<<SAME_AS_ORIGINAL>>" — never a partial object, never omitted from the array. Give a pair its own full object only when the edition's block actually contains that pair's (possibly changed) content. The original variant itself must always contain full objects for all 3 pairs — never the placeholder.
+- DEDUPLICATION: for a reworked edition (version is not null), any question_pairs entry the block doesn't restate, or restates word-for-word identically to the original variant's (version: null) same-position entry, must be COPIED from that original entry word-for-word — repeat its full pair object, do not invent different content and do not leave it out. Give a pair its own (possibly changed) content only when the edition's block actually contains it. The original variant itself must always contain full objects for all 3 pairs.
 - Ignore lines of only digits (page numbers) and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
@@ -292,7 +310,7 @@ Rules:
 - Question numbers are 46–51 (or 42–51 depending on variant)
 - VERSIONS: headers like "Sprachbausteine Teil 1 (вариант №3)(новая версия от …)" are reworked editions — output each as a SEPARATE object: same variant_number, distinct "version" label (null for the original), with its own complete letter_text, answers and all_options.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
-- DEDUPLICATION: for a reworked edition (version is not null), if its "letter_text" or "all_options" would be word-for-word IDENTICAL to the original variant's (version: null), do NOT retype them — output the literal string "<<SAME_AS_ORIGINAL>>" for that field instead. Only give it its own value when the edition genuinely changes that content. The original variant itself must always contain the full "letter_text" and "all_options" — never the placeholder.
+- DEDUPLICATION: for a reworked edition (version is not null), if its "letter_text" or "all_options" would be word-for-word IDENTICAL to the original variant's (version: null), COPY them over word-for-word — every object needs its own real, complete "letter_text" and "all_options", never left empty or shortened just because another edition already has the same content.
 - Ignore page numbers and Russian meta-text
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 

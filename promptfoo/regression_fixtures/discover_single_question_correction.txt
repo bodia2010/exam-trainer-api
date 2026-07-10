@@ -1,0 +1,117 @@
+00000: Hören Teil 4 (вариант №9) – 100%
+00001: Ссылка на запись: https://t.me/example_channel/00000/000000
+00002: 
+00003: Nummer 36  Herr Berger
+00004: Guten Tag, hier ist Berger von der Spedition Nordwind. Der LKW mit Ihrer Bestellung hat leider eine Panne auf der Autobahn. Die Ersatzteile treffen voraussichtlich erst morgen früh bei Ihnen ein. Bitte informieren Sie Ihr Lager entsprechend. Ich melde mich, sobald ich Genaueres weiß.
+00005: 
+00006: 36. Herr Berger
+00007: a) meldet eine Verspätung der Lieferung. – 100%
+00008: b) storniert die Bestellung.
+00009: c) bittet um eine neue Adresse.
+00010: 
+00011: Varianten der Antworten vom 02.03.25
+00012: 
+00013: 36. Herr Berger
+00014: a) hat einen Unfall gemeldet. -?
+00015: b) meldet eine Verspätung der Lieferung.
+00016: c) bittet um eine neue Adresse.
+00017: 
+00018: Nummer 37  Frau Keller
+00019: Hallo, hier spricht Keller aus der Buchhaltung. Ich habe Ihre letzte Rechnung geprüft und es gibt eine kleine Differenz beim Gesamtbetrag. Könnten Sie mich bitte zurückrufen, damit wir das gemeinsam klären?
+00020: 
+00021: 37. Frau Keller
+00022: a) hat eine Rechnung bezahlt.
+00023: b) hat eine Unstimmigkeit in einer Rechnung gefunden. – 100%
+00024: c) braucht eine neue Rechnung.
+00025: 
+00026: Nummer 38  Herr Wolter
+00027: Guten Tag, Wolter hier von der IT-Abteilung. Ihr neuer Laptop ist eingetroffen und einsatzbereit. Sie können ihn ab morgen Vormittag im Empfang abholen. Bringen Sie bitte Ihren Mitarbeiterausweis mit.
+00028: 
+00029: 38. Herr Wolter
+00030: a) meldet einen defekten Laptop.
+00031: b) bittet um Rückgabe eines Laptops.
+00032: c) meldet einen abholbereiten Laptop. – 100%
+00033: 
+00034: Nummer 39  Frau Nauer
+00035: Hallo, hier ist Nauer von der Personalabteilung. Ihr Urlaubsantrag für August wurde genehmigt. Bitte bestätigen Sie den Erhalt dieser Nachricht per E-Mail, damit wir das intern abschließen können.
+00036: 
+00037: 39. Frau Nauer
+00038: a) lehnt einen Urlaubsantrag ab.
+00039: b) bestätigt einen genehmigten Urlaubsantrag. – 100%
+00040: c) bittet um einen neuen Urlaubsantrag.
+00041: 
+00042: Nummer 40  Herr Adler
+00043: Guten Tag, Adler hier vom Kundenservice. Das von Ihnen reklamierte Gerät wurde geprüft und wird kostenlos ersetzt. Der Ersatz wird innerhalb von fünf Werktagen an Ihre bekannte Adresse verschickt.
+00044: 
+00045: 40. Herr Adler
+00046: a) lehnt eine Reklamation ab.
+00047: b) meldet einen kostenlosen Ersatz. – 100%
+00048: c) bittet um eine neue Adresse.
+00049: 
+00050: Nummer 41  Frau Sommer
+00051: Hallo, hier ist Sommer aus dem Sekretariat. Der für Donnerstag geplante Termin mit der Geschäftsführung muss leider auf Freitag, 14 Uhr, verschoben werden. Bitte geben Sie mir kurz Bescheid, ob das für Sie passt.
+00052: 
+00053: 41. Frau Sommer
+00054: a) sagt einen Termin ab.
+00055: b) verschiebt einen Termin. – 100%
+00056: c) bestätigt einen Termin.
+00057: 
+00058: Nummer 42  Herr Brandt
+00059: Guten Tag, Brandt hier vom Einkauf. Die von Ihnen angefragten Muster sind eingetroffen. Ich lege sie Ihnen ins Fach, Sie können sie sich jederzeit im Empfang abholen.
+00060: 
+00061: 42. Herr Brandt
+00062: a) storniert eine Musteranfrage.
+00063: b) meldet eingetroffene Muster. – 100%
+00064: c) bittet um neue Muster.
+00065: 
+00066: Nummer 43  Frau Vogel
+00067: Hallo, hier ist Vogel von der Rezeption. Ihr Besucher ist bereits eingetroffen und wartet im Empfangsbereich. Bitte kommen Sie, wenn es Ihnen möglich ist, in den nächsten Minuten herunter.
+00068: 
+00069: 43. Frau Vogel
+00070: a) meldet die Ankunft eines Besuchers. – 100%
+00071: b) sagt einen Besuch ab.
+00072: c) bittet um eine spätere Ankunftszeit.
+00073: 
+00074: 
+00075: Lesen und Schreiben Teil Beschwerde (вариант № 9) – 100%
+00076: 
+00077: Gartenpflege / Außenanlagen
+00078: 
+00079: 19. Herr Voss
+00080: a) möchte seinen Vertrag kündigen.
+00081: b) ist mit der Qualität der Arbeit unzufrieden. – 100%
+00082: c) will einen neuen Vertrag abschließen.
+00083: 
+00084: 20. Der Gartendienst
+00085: a) hält die vereinbarten Termine nicht ein. / hat zu wenig Personal eingesetzt.
+00086: b) hat zu wenig Personal eingesetzt.
+00087: c) möchte einen neuen Vertrag.
+00088: 
+00089: Varianten der Antworten vom 05.09.25
+00090: 
+00091: 20. Der Gartendienst
+00092: a) hält die vereinbarten Termine nicht ein. – 100%
+00093: b) hat zu wenig Personal eingesetzt.
+00094: c) möchte einen neuen Vertrag.
+00095: 
+00096: Hallo Team,
+00097: 
+00098: ich habe die beigefügte Beschwerde von Herrn Voss erhalten und bin etwas überrascht. Bitte klärt kurz mit dem zuständigen Gartendienst, was da vorgefallen ist, und meldet euch bei ihm mit einer Erklärung. Wir wollen ihn als Kunden natürlich nicht verlieren.
+00099: 
+00100: Viele Grüße
+00101: Petra
+00102: 
+00103: Sehr geehrte Damen und Herren,
+00104: 
+00105: seit einigen Wochen ist unser Vertrag mit Ihrem Gartendienst leider nicht mehr zufriedenstellend. Die vereinbarten Pflegetermine werden regelmäßig verschoben, ohne dass wir vorher informiert werden. Zuletzt stand unser Grundstück drei Wochen unbearbeitet, obwohl wöchentliche Pflege vereinbart war. Ich bitte um eine schriftliche Stellungnahme und um Einhaltung der vertraglich vereinbarten Termine in Zukunft.
+00106: 
+00107: Mit freundlichen Grüßen
+00108: Herr Voss
+00109: 
+00110: Sehr geehrter Herr Voss,
+00111: 
+00112: vielen Dank für Ihre Rückmeldung und bitte entschuldigen Sie die entstandenen Unannehmlichkeiten. Wir haben mit dem zuständigen Team gesprochen und die Ursache war ein kurzfristiger Personalausfall, der leider nicht rechtzeitig kommuniziert wurde. Ab sofort erhalten Sie bei jeder Terminänderung eine Benachrichtigung mindestens 24 Stunden im Voraus. Als Ausgleich bieten wir Ihnen einen kostenlosen Zusatztermin im nächsten Monat an.
+00113: 
+00114: Mit freundlichen Grüßen
+00115: Ihr Gartenpflege-Team
+00116: 
