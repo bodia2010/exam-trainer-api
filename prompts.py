@@ -102,6 +102,13 @@ options — this is a later correction to one question's answer, not a \
 reworked edition. Leave it inside the same item as the question it \
 corrects. A trivial reword of a single question is likewise NOT a \
 separate edition — skip it. Only a block reworking MULTIPLE questions at \
+once counts as an edition. This rule applies independently to EACH such \
+correction block — a single variant can contain several single-question \
+corrections scattered after different questions (e.g. one after question \
+36, another unrelated one after question 38); every one of them is still \
+just a correction on its own, never a start_line, and their combined \
+presence in the same variant does NOT add up to "reworking multiple \
+questions" — only ONE block that itself reworks several questions at \
 once counts as an edition.
 
 Between two exercises there is sometimes a non-exercise block — a table of \
@@ -222,6 +229,7 @@ A full pair object:
 Rules:
 - audio_url: single URL at top of variant; null if absent
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
+- Determine richtig_falsch.answer and multiple_choice.correct_letter from whatever marks the correct one in the source: "– 100%", "(100%)", a letter written after the item, or similar markers; if genuinely unmarked, decide from the dialogue content instead of leaving it undetermined.
 - VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)"), output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original). A lone alternative wording of a single question is NOT an edition — keep the answered one.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct edition — output exactly one object per block, in the same order, never merging or skipping a block. A block for a reworked edition often restates only the ONE pair that actually changed (e.g. just "Nummer 24 und 25") — that is normal, not an error; see DEDUPLICATION for how to fill the other two entries.
 - DEDUPLICATION: for a reworked edition (version is not null), any question_pairs entry the block doesn't restate, or restates word-for-word identically to the original variant's (version: null) same-position entry, must be COPIED from that original entry word-for-word — repeat its full pair object, do not invent different content and do not leave it out. Give a pair its own (possibly changed) content only when the edition's block actually contains it. The original variant itself must always contain full objects for all 3 pairs.
