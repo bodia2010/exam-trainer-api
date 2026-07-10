@@ -53,11 +53,17 @@ def build(model: str, section_type: str = '') -> dict:
         # its way into skipping some — confirmed via production imports
         # where the identical input reproducibly came back with a
         # different (usually short) question count on every retry.
-        # Scoped to parse calls only, NOT discovery — discovery is a
-        # broad classification task over the whole ~150K-token document
-        # at once, a fundamentally different job, and there's no
-        # evidence low temperature helps (or is even neutral) there.
-        temperature = 0.2 if section_type != 'discover' else 1
+        #
+        # Discovery goes all the way to 0 (greedy): its output is a list
+        # of line numbers, and sampling noise corrupts them — observed
+        # live: two back-to-back discover calls on the identical document
+        # differed in exactly one digit ("start_line": 515 vs the correct
+        # 9515, a dropped leading 9), and that single corrupted number
+        # planted a ghost hoeren_teil4 boundary inside a Lesen section,
+        # breaking BOTH sections' imports at once. Greedy decoding makes
+        # the numeric path deterministic; the two clean temp=1 runs were
+        # already byte-identical in every boundary, so we lose nothing.
+        temperature = 0.2 if section_type != 'discover' else 0
         config = {
             'temperature': temperature,
             'thinkingConfig': {'thinkingLevel': level},
