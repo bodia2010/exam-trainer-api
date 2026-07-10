@@ -84,32 +84,36 @@ categories by RECOGNIZING ITS STRUCTURE, not just a literal label:
 - hoeren_teil3: one longer workplace conversation followed by 4 multiple-choice questions
 - hoeren_teil4: five short phone announcements, each followed by its own multiple-choice question
 
-VERSIONS: the same variant sometimes reappears as a reworked edition \
-(marked "Новая версия", "Neue Version", a later date, "Другой вариант \
-ответов", "Старый вариант вопросов", or similar) — output each edition as \
-its own separate item with a distinct version_label; the original edition \
-gets version_label: null. This includes a listening/reading section where \
-the same recording or text is followed by a SECOND, different set of \
-MULTIPLE questions immediately after the first (a reworked question set \
-covering most/all of the variant's questions, not a reworked passage) — \
-that second set is its own edition too, marked at wherever ITS OWN \
-questions begin, not the shared passage above them.
+VERSIONS: a labeled follow-up block ("Новая версия", "Neue Version", \
+"Варианты ответов от <date>", "Другой вариант ответов", "Старый вариант \
+вопросов", or similar — the label text alone is NOT the deciding \
+signal, see below) can mean one of two completely different things, and \
+you must count questions to tell them apart BEFORE deciding anything \
+else:
 
-Do NOT treat this as a new edition, and do NOT emit a start_line for it: \
-a label like "Варианты ответов от <date>" that appears right after ONE \
-SINGLE already-numbered question and gives only THAT question new answer \
-options — this is a later correction to one question's answer, not a \
-reworked edition. Leave it inside the same item as the question it \
-corrects. A trivial reword of a single question is likewise NOT a \
-separate edition — skip it. Only a block reworking MULTIPLE questions at \
-once counts as an edition. This rule applies independently to EACH such \
-correction block — a single variant can contain several single-question \
-corrections scattered after different questions (e.g. one after question \
-36, another unrelated one after question 38); every one of them is still \
-just a correction on its own, never a start_line, and their combined \
-presence in the same variant does NOT add up to "reworking multiple \
-questions" — only ONE block that itself reworks several questions at \
-once counts as an edition.
+1. It reworks MULTIPLE questions at once (most/all of the variant's \
+questions get a new option set) → this IS a new edition. Output it as \
+its own separate item, distinct version_label, marked at wherever ITS \
+OWN questions begin, not the shared passage/dialogue above them. The \
+original edition gets version_label: null.
+
+2. It reworks exactly ONE already-numbered question and gives only THAT \
+question new answer options → this is NOT an edition, it is a later \
+correction to one question's answer. Do NOT emit a start_line for it, \
+do NOT create a new item, and do NOT let it end the current item early \
+— it is content belonging to the SAME item as the question it corrects, \
+and everything after it (up through wherever the NEXT real question or \
+exercise actually begins) still belongs to that same item too. This \
+holds no matter how the label reads, even if it superficially resembles \
+the multi-question case (mentions a date, says "Варианты"/"variants" \
+plural, etc.) — the label text is decorative, only the question COUNT \
+decides. A variant can contain several such single-question corrections \
+scattered after different questions (e.g. one after question 36, a \
+separate unrelated one after question 38) — evaluate each one on its \
+own by the same one-question test; several single-question corrections \
+in the same variant never add up to case 1, and none of them ever gets \
+a start_line. A trivial reword of a single question with no new options \
+at all is likewise not an edition — skip it, same as case 2.
 
 Between two exercises there is sometimes a non-exercise block — a table of \
 contents/summary page, a links-only reference section (Forumsbeitrag, \
