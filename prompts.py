@@ -82,7 +82,7 @@ categories by RECOGNIZING ITS STRUCTURE, not just a literal label:
 - hoeren_teil1: a short two-person dialogue, then a true/false question and a 3-option multiple-choice question — repeats 3 times per variant
 - hoeren_teil2: four short monologues/dialogues (numbered), each matched to one of six statements a-f
 - hoeren_teil3: one longer workplace conversation followed by 4 multiple-choice questions
-- hoeren_teil4: eight short phone announcements, each followed by its own multiple-choice question
+- hoeren_teil4: five short phone announcements, each followed by its own multiple-choice question
 
 VERSIONS: the same variant sometimes reappears as a reworked edition \
 (marked "Новая версия", "Neue Version", a later date, "Другой вариант \
@@ -177,10 +177,10 @@ audio_url = the "Ссылка на запись" telegram link.
 'hoeren_teil4': _u("""Section: Hören Teil 4 (short phone messages).
 Variants start with "Hören Teil 4 (вариант №".
 audio_url = the telegram link near the header.
-Eight messages "Nummer 36".."Nummer 43", each followed by a choice question with the same number.
+Five messages "Nummer 36".."Nummer 40", each followed by a choice question with the same number.
 - texts: one entry per message, title = "Nummer <N> <name>", content = the message transcript
-- questions 36-43: type "choice" with a) b) c); the correct option is marked "– 100%"
-- A question sometimes has a SECOND a) b) c) block right after it, introduced by "Варианты ответов от <date>" — this is a later correction to that ONE question's answer, not a new variant. Pick whichever block has a clearly marked "– 100%" answer; if a block has an incomplete option (a blank line after "b)", or "c) ?" with no text), it is not usable — use the other block instead. Output exactly ONE answer per question number, 8 questions total — never two objects and never two competing answers for the same number."""),
+- questions 36-40: type "choice" with a) b) c); the correct option is marked "– 100%"
+- A question sometimes has a SECOND a) b) c) block right after it, introduced by "Варианты ответов от <date>" — this is a later correction to that ONE question's answer, not a new variant. Pick whichever block has a clearly marked "– 100%" answer; if a block has an incomplete option (a blank line after "b)", or "c) ?" with no text), it is not usable — use the other block instead. Output exactly ONE answer per question number, 5 questions total — never two objects and never two competing answers for the same number."""),
 
 'hoeren_teil1': """Parse German B2 Beruf exam Hören Teil 1 exercises from the Markdown below.
 

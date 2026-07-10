@@ -129,7 +129,14 @@ _UNIVERSAL_QUESTION_COUNTS = {
     'sprachbausteine_teil2': 6,
     'hoeren_teil2': 4,
     'hoeren_teil3': 4,
-    'hoeren_teil4': 8,
+    # Confirmed against telc's own official B2 Beruf test-format table:
+    # Hören Teil 4 = 5 Multiple-Choice-Aufgaben, not 8. The old value of 8
+    # (Nummer 36..43) was simply wrong from the start, not "usually 8, with
+    # occasional shorter variants" — forcing exactly 8 made Gemini fabricate
+    # placeholder "Not available" messages to pad a correctly-5-question
+    # variant out to the wrong required length, which then failed
+    # answer/option-consistency validation downstream.
+    'hoeren_teil4': 5,
 }
 
 
