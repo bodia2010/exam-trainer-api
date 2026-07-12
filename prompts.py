@@ -68,6 +68,12 @@ line number. In your JSON output, write start_line as a PLAIN integer with \
 NO leading zeros (42, not "00042" or 00042) — leading zeros make the \
 number invalid JSON.
 
+Also copy "anchor": the line's own text (everything after the ": " \
+prefix, verbatim, no truncation) for EVERY item — this is a checked \
+cross-reference for start_line, not optional decoration, so it must be \
+the ACTUAL text at that exact line, copied character-for-character, \
+never paraphrased, shortened, or copied from a nearby line instead.
+
 Find EVERY distinct practice-exercise instance (one variant of one \
 exercise type) in the document, and classify each into ONE of these \
 categories by RECOGNIZING ITS STRUCTURE, not just a literal label:

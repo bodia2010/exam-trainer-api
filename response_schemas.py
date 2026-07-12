@@ -55,8 +55,20 @@ DISCOVER_SCHEMA = {
             'variant_number': {'type': 'INTEGER', 'nullable': True},
             'version_label': {'type': 'STRING', 'nullable': True},
             'start_line': {'type': 'INTEGER'},
+            # Self-healing anchor for start_line: transcribing a 5-digit line
+            # number correctly ~170 times per document is exactly the kind of
+            # narrow numeric-transcription task LLMs occasionally fumble
+            # (confirmed live: "start_line": 515 instead of 9515 — one
+            # dropped leading digit — even at temperature=0, since Gemini
+            # doesn't guarantee bit-identical output across calls even
+            # greedy). The client cross-checks this text against the actual
+            # line at start_line and, on a mismatch, searches nearby lines
+            # for it and corrects start_line itself — a wrong digit becomes
+            # self-correcting instead of silently misplacing a chunk
+            # boundary into an unrelated part of the document.
+            'anchor': {'type': 'STRING'},
         },
-        'required': ['section_type', 'start_line'],
+        'required': ['section_type', 'start_line', 'anchor'],
     },
 }
 
