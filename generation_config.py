@@ -39,7 +39,19 @@ def model_for(section_type: str) -> str:
 # empty, question counts short (5/8 for hoeren_teil4, 1/2 for
 # beschwerde), consistently across retries. Lighter section types
 # (single letter/passage, fixed short question sets) stay at MINIMAL.
-HEAVY_SECTION_TYPES = {'beschwerde', 'hoeren_teil2', 'hoeren_teil3', 'hoeren_teil4'}
+#
+# telefonnotiz joined this set after a real premium import with several
+# variants having 4 editions each (all editions of one variant_number are
+# grouped into a single call per the SEGMENTATION rule in prompts.py, so
+# a heavily-edited variant means 4 monologues + 4 five-field answer keys
+# in one call): individual answer fields (telefonnummer,
+# weitere_informationen) and even a whole edition's monologue came back
+# empty, each in a different variant, consistently surviving the
+# client's validation-triggered retry — the exact same "drops content
+# under load, retry doesn't help" signature as the other four.
+HEAVY_SECTION_TYPES = {
+    'beschwerde', 'hoeren_teil2', 'hoeren_teil3', 'hoeren_teil4', 'telefonnotiz',
+}
 
 
 def build(model: str, section_type: str = '') -> dict:
