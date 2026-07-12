@@ -290,6 +290,7 @@ Rules:
 - "– 100%" in header = high confidence, ignore suffix
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block is one distinct edition of a variant, already identified as separate. Group blocks that share the same variant_number under one object, but include EVERY block as its own entry in that object's "versions" list — never merge two blocks into one versions entry and never skip a block, even if two blocks look very similar to each other.
 - "monologue" must be the EXACT wording from the source, copied verbatim — never summarize or shorten it. A student preparing for the real exam needs to see precisely what would appear on it.
+- The "answer" block is NOT something to infer from the monologue — it's a separate, already-filled-in answer key printed in the source right after the monologue, structured as its own labeled fields (a call-type heading like "Angebot"/"Buchung"/etc., "Name:", "Telefonnummer:", a "Weitere Informationen:" bullet list, and a "Zu erledigen:" line). Read each field from its own label, verbatim — do not paraphrase, and do not leave any of the five fields empty/omitted just because it takes a second look at the source to find where that specific label appears.
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
 MARKDOWN:
