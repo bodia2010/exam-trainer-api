@@ -21,9 +21,16 @@ line with its own metadata before the text passed to print().
 
 Prints one row per (section_type, tariff) with call count, average prompt
 tokens (input), average output tokens (candidates + thoughts — both are
-billed as output tokens under Gemini's pricing), and a $ cost estimate at
-gemini-3.1-flash-lite rates: $0.25 / 1M input tokens, $1.50 / 1M output
-tokens. A TOTAL row follows.
+billed as output tokens under Gemini's pricing), and a $ cost estimate.
+Pricing is looked up per section_type via generation_config.model_for, the
+same function main.py uses to pick the model for each call — this matters
+because 'discover' runs on gemini-3.5-flash ($1.50 / $9 per 1M in/out)
+while every other section type runs on gemini-3.1-flash-lite ($0.25 /
+$1.50 per 1M in/out), a 6x per-token difference. A single flat rate across
+every row would badly understate discover's share, which is also the
+largest call by token count (a whole document vs. one small chunk for
+everything else) — in practice usually the dominant cost driver. A TOTAL
+row follows.
 
 Self-test (fabricated sample, no real logs needed — this is what was run
 to confirm the script doesn't crash and the math is sane):
@@ -37,9 +44,13 @@ to confirm the script doesn't crash and the math is sane):
     EOF
 """
 import argparse
+import os
 import re
 import sys
 from collections import defaultdict
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import generation_config  # noqa: E402
 
 _USAGE_RE = re.compile(
     r'GEMINI_USAGE\s+section_type=(?P<section_type>\S+)\s+'
@@ -49,9 +60,20 @@ _USAGE_RE = re.compile(
     r'thoughts_tokens=(?P<thoughts_tokens>\d+)'
 )
 
-# gemini-3.1-flash-lite pricing (see AGENT_PLAN.md 1.3).
-_INPUT_RATE_PER_TOKEN = 0.25 / 1_000_000
-_OUTPUT_RATE_PER_TOKEN = 1.50 / 1_000_000
+# $ per token, (input, output). Update alongside generation_config.MODELS —
+# a model missing here falls back to gemini-3.1-flash-lite's rate, which
+# would silently understate cost for anything actually running pricier, so
+# keep this in sync rather than relying on the fallback.
+_MODEL_PRICING = {
+    'gemini-3.1-flash-lite': (0.25 / 1_000_000, 1.50 / 1_000_000),
+    'gemini-3.5-flash': (1.50 / 1_000_000, 9.00 / 1_000_000),
+}
+_DEFAULT_PRICING = _MODEL_PRICING['gemini-3.1-flash-lite']
+
+
+def _rates_for(section_type):
+    model = generation_config.model_for(section_type)
+    return _MODEL_PRICING.get(model, _DEFAULT_PRICING)
 
 
 def parse_lines(lines):
@@ -83,18 +105,18 @@ def format_report(groups):
 
     rows = []
     total_calls = total_prompt = total_output = 0
+    total_cost = 0.0
     for (section_type, tariff), g in sorted(groups.items()):
         calls = g['calls']
         avg_in = g['prompt_tokens'] / calls
         avg_out = g['output_tokens'] / calls
-        cost = (
-            g['prompt_tokens'] * _INPUT_RATE_PER_TOKEN
-            + g['output_tokens'] * _OUTPUT_RATE_PER_TOKEN
-        )
+        input_rate, output_rate = _rates_for(section_type)
+        cost = g['prompt_tokens'] * input_rate + g['output_tokens'] * output_rate
         rows.append((section_type, tariff, calls, avg_in, avg_out, cost))
         total_calls += calls
         total_prompt += g['prompt_tokens']
         total_output += g['output_tokens']
+        total_cost += cost
 
     header = (
         f'{"section_type":<20} {"tariff":<8} {"calls":>6} '
@@ -107,7 +129,6 @@ def format_report(groups):
             f'{avg_in:>10.1f} {avg_out:>10.1f} {cost:>10.4f}'
         )
 
-    total_cost = total_prompt * _INPUT_RATE_PER_TOKEN + total_output * _OUTPUT_RATE_PER_TOKEN
     lines.append('-' * len(header))
     lines.append(
         f'{"TOTAL":<20} {"":<8} {total_calls:>6} '
