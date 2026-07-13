@@ -74,6 +74,32 @@ def _authenticate():
     return firebase_auth.authenticate_request(request.headers)
 
 
+def _incr_with_ttl(key: str, ttl_seconds: int) -> int | None:
+    """INCRs `key`, setting a TTL on it the moment it's first created (so a
+    window's counter always expires instead of accumulating forever) —
+    shared by every counter below (hourly rate limit, daily import caps).
+    Returns the post-increment count, or None if Redis is unreachable/not
+    configured, which every caller treats as fail-open: a flaky or absent
+    counter must not take the API down."""
+    if not _UPSTASH_URL:
+        return None
+    resp = requests.post(
+        f'{_UPSTASH_URL}/incr/{key}',
+        headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        return None
+    count = resp.json().get('result', 0)
+    if count == 1:
+        requests.post(
+            f'{_UPSTASH_URL}/expire/{key}/{ttl_seconds}',
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            timeout=10,
+        )
+    return count
+
+
 # Generous enough that even several full PDF imports (discovery + tens of
 # parse calls + per-variant-group cache lookups) comfortably fit in one
 # window, while still putting a hard, known ceiling on what a single
@@ -84,25 +110,35 @@ _RATE_LIMIT_PER_HOUR = 1000
 
 
 def _rate_limit_ok(uid: str) -> bool:
-    if not _UPSTASH_URL:
-        return True  # rate limiting is a hardening layer, not a hard dependency
     window = int(time.time() // 3600)
-    key = f'ratelimit|{uid}|{window}'
-    resp = requests.post(
-        f'{_UPSTASH_URL}/incr/{key}',
-        headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
-        timeout=10,
-    )
-    if resp.status_code != 200:
-        return True  # fail open — a flaky rate limiter must not take the API down
-    count = resp.json().get('result', 0)
-    if count == 1:
-        requests.post(
-            f'{_UPSTASH_URL}/expire/{key}/3600',
-            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
-            timeout=10,
-        )
-    return count <= _RATE_LIMIT_PER_HOUR
+    count = _incr_with_ttl(f'ratelimit|{uid}|{window}', 3600)
+    return count is None or count <= _RATE_LIMIT_PER_HOUR
+
+
+# Both Gemini keys are paid now (see generation_config.py's model split —
+# discover alone runs ~$0.35/document on gemini-3.5-flash), so "free tier"
+# no longer means "on a free quota" — it needs its own hard ceiling on the
+# one call whose cost scales with document size instead of being a few
+# cents per chunk. A single new-document discover call is the single most
+# expensive thing this API ever does; these three caps bound it from three
+# angles (per-account daily, and a service-wide daily circuit breaker) —
+# see PRODUCT_PLAN.md Phase 0 for the reasoning and the free-tier policy
+# this pairs with (free never reaches Gemini for discover at all, only
+# ever reads the shared cache — enforced in parse() below).
+_PREMIUM_DAILY_IMPORT_LIMIT = 5
+_GLOBAL_DAILY_DISCOVER_LIMIT = 100
+
+
+def _premium_import_cap_ok(uid: str) -> bool:
+    day = time.strftime('%Y%m%d', time.gmtime())
+    count = _incr_with_ttl(f'importcap|{uid}|{day}', 86400)
+    return count is None or count <= _PREMIUM_DAILY_IMPORT_LIMIT
+
+
+def _global_discover_cap_ok() -> bool:
+    day = time.strftime('%Y%m%d', time.gmtime())
+    count = _incr_with_ttl(f'discovercap|{day}', 86400)
+    return count is None or count <= _GLOBAL_DAILY_DISCOVER_LIMIT
 
 
 @app.after_request
@@ -353,11 +389,53 @@ def parse():
     markdown = body.get('markdown', '')
     section_type = body.get('section_type', '')
 
+    # TEMPORARY diagnostic for a live hoeren_teil4 content-truncation bug
+    # report — first/last 80 chars only (never the middle/full content),
+    # enough to see which message the group actually starts/ends at
+    # without logging real exam answers. Remove once the bug is found.
+    if section_type == 'hoeren_teil4':
+        print(f'DEBUG_GROUP_BOUNDS len={len(markdown)} '
+              f'start={markdown[:80]!r} end={markdown[-80:]!r}')
+
     prompt_template = PROMPTS.get(section_type)
     if not prompt_template:
         return jsonify({'error': f'Unknown section_type: {section_type}'}), 400
 
     premium = firestore_client.is_premium(uid)
+
+    # Discovery is the single most expensive call this API makes (whole
+    # document, pricier model — see generation_config.py) and, unlike
+    # every other call, its cost scales with document size instead of
+    # being a few cents per chunk. The client already checks the shared
+    # `/api/cache` doc/discover cache before ever calling this endpoint
+    # (see ParseService.discoverSections), so reaching here for a
+    # 'discover' request always means a real cache miss — a genuinely new
+    # document. Free tier never gets to trigger that Gemini call at all:
+    # it can only ever benefit from a document some premium import (or a
+    # curated cache pre-warm, see PRODUCT_PLAN.md Phase 1) already paid
+    # for. Premium still gets a hard daily ceiling per account, plus a
+    # service-wide daily circuit breaker, so a single (or many
+    # coordinated) compromised account(s) can't run up an unbounded bill.
+    if section_type == 'discover':
+        if not premium:
+            print(f'DISCOVER_FREE_REJECTED uid={uid[:8]}')
+            return jsonify({
+                'error': 'This document has not been processed before — new '
+                         'documents require Premium. Free tier can open any '
+                         'document a Premium import has already used.'
+            }), 403
+        if not _premium_import_cap_ok(uid):
+            print(f'DISCOVER_IMPORT_CAP_REJECTED uid={uid[:8]}')
+            return jsonify({
+                'error': 'Daily limit for new documents reached — try again '
+                         'tomorrow.'
+            }), 429
+        if not _global_discover_cap_ok():
+            print('DISCOVER_GLOBAL_CAP_REJECTED')
+            return jsonify({
+                'error': 'Service is busy processing new documents right now '
+                         '— please try again later.'
+            }), 503
 
     # The client only sends one variant group per section for free users,
     # but that's a courtesy, not a boundary — a modified client, or a PDF
@@ -371,26 +449,7 @@ def parse():
     # above it, not against it.
     _FREE_TIER_MAX_CHARS = 12000
     _FREE_TIER_MAX_EDITIONS = 8
-    # Discovery has no per-variant shape to bound (it's the whole document,
-    # numbered), so it needs its own cap instead of the char/edition pair
-    # above. First value (500K chars) was a guess with no real data behind
-    # it and turned out too tight — a real telc B2 Beruf PDF's extracted
-    # markdown routinely lands well above that (MarkItDown's layout/table
-    # handling is verbose). 2M chars (~500K tokens) gives real headroom
-    # above any legitimate document while still bounding the worst-case
-    # free-tier cost of the single most expensive call in the pipeline.
-    # Logs the actual size on rejection now, so the next tuning pass has
-    # real numbers instead of another guess.
-    _FREE_TIER_MAX_DISCOVER_CHARS = 2_000_000
-    if not premium and section_type == 'discover':
-        if len(markdown) > _FREE_TIER_MAX_DISCOVER_CHARS:
-            print(f'DISCOVER_SIZE_REJECTED chars={len(markdown)} '
-                  f'limit={_FREE_TIER_MAX_DISCOVER_CHARS}')
-            return jsonify({
-                'error': 'Free tier document too large for structure discovery '
-                         '— upgrade to premium for full documents.'
-            }), 403
-    elif not premium and section_type != 'discover':
+    if not premium and section_type != 'discover':
         edition_count = markdown.count('<<<ITEM>>>') + 1
         if len(markdown) > _FREE_TIER_MAX_CHARS or edition_count > _FREE_TIER_MAX_EDITIONS:
             return jsonify({
@@ -419,6 +478,20 @@ def parse():
             # should make this unreachable going forward — kept as a
             # harmless fallback rather than removed outright.
             text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
+            # TEMPORARY diagnostic for the same hoeren_teil4 bug — dump
+            # every discovered entry mentioning hoeren_teil4 (structural
+            # fields only: type/variant/start_line, never real content) to
+            # see exactly what discovery produced, instead of guessing
+            # from downstream symptoms. Remove once the bug is found.
+            try:
+                parsed_discover = json.loads(text)
+                relevant = [e for e in parsed_discover
+                            if isinstance(e, dict)
+                            and 'hoeren_teil4' in str(e.get('section_type', ''))]
+                if relevant:
+                    print(f'DEBUG_DISCOVER_ENTRIES {relevant}')
+            except Exception:
+                pass
         return jsonify(json.loads(text))
     except GeminiError as e:
         return jsonify({'error': str(e)}), e.status_code
