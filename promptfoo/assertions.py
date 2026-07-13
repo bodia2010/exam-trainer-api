@@ -222,3 +222,42 @@ def single_question_correction_not_split(output, context):
     return {'pass': ok, 'score': 1 if ok else 0,
             'reason': f'{len(real)} real item(s) found (expected exactly 2 — a '
                       f'single-question correction must not split a variant): {real}'}
+
+
+def split_slash_variant_number_not_concatenated(output, context):
+    """Discovery regression check for the exact bug this pipeline hit in
+    production: a printed variant number of the form "N/M" (e.g.
+    "вариант №3/1", meaning the M-th edition of variant N) got its digits
+    concatenated into a brand-new integer variant_number (31) instead of
+    being recognized as variant N's own second edition. The fixture this
+    runs against (regression_fixtures/discover_split_slash_variant_number.txt)
+    embeds a "Telefonnotiz (вариант №5)" original and a
+    "Telefonnotiz (вариант №5/1)" edition with different content — so
+    discovery must report exactly 2 real telefonnotiz items, BOTH with
+    variant_number == 5 (one version_label null, one not), and must NOT
+    report any item with variant_number == 51 or any other concatenated/
+    non-5 number."""
+    try:
+        items = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+    real = [i for i in items if i.get('section_type') != 'other']
+    telefonnotiz = [i for i in real if i.get('section_type') == 'telefonnotiz']
+    bad_numbers = [i for i in telefonnotiz if i.get('variant_number') != 5]
+    if bad_numbers:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected every telefonnotiz item to have '
+                          f'variant_number == 5, got: {bad_numbers}'}
+    if len(telefonnotiz) != 2:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected exactly 2 telefonnotiz items (original '
+                          f'+ "5/1" edition), got {len(telefonnotiz)}: {telefonnotiz}'}
+    originals = [i for i in telefonnotiz if i.get('version_label') is None]
+    editions = [i for i in telefonnotiz if i.get('version_label') is not None]
+    if len(originals) != 1 or len(editions) != 1:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected 1 original (version_label null) and 1 '
+                          f'edition (version_label set), got originals='
+                          f'{originals}, editions={editions}'}
+    return {'pass': True, 'score': 1,
+            'reason': f'both editions correctly reported under variant_number 5: {telefonnotiz}'}

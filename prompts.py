@@ -123,6 +123,21 @@ in the same variant never add up to case 1, and none of them ever gets \
 a start_line. A trivial reword of a single question with no new options \
 at all is likewise not an edition — skip it, same as case 2.
 
+SPLIT-SLASH NUMBERING: sometimes the printed variant number is itself \
+two whole numbers joined by a single forward slash, e.g. "вариант №3/1" \
+or "Variante 3/1" (structural test: digits, one "/", digits, in the \
+variant-number position right after №/Variante/etc. — this is NOT a \
+date, which uses "." or "-" or has three parts). This marks an edition \
+of the variant named by the number BEFORE the slash — it is never a \
+brand-new variant with its own number, no matter how the digits read. \
+Treat it exactly like any other VERSIONS label above: run the same \
+MULTIPLE-vs-SINGLE-question test to decide whether it starts a new item \
+or is only a single-question correction. When it does start a new item, \
+report variant_number as the bare integer BEFORE the slash only (for \
+"3/1" that is 3 — never the string "3/1", and never a concatenated \
+integer like 31), and put the full printed label, slash included, in \
+version_label (e.g. "3/1").
+
 Between two exercises there is sometimes a non-exercise block — a table of \
 contents/summary page, a links-only reference section (Forumsbeitrag, \
 Sprechen/Mündliche Prüfung materials, "Antwortbögen"/"Struktur" link \
@@ -133,7 +148,7 @@ also emit a marker for the START of every such filler block: \
 {"section_type": "other", "start_line": <int>} (no variant_number/version_label needed).
 
 For each real exercise item found, return:
-{"section_type": "<one of the 12 keys above>", "variant_number": <integer — the variant's own printed number if there is one, else your best sequential guess>, "version_label": "<short label or null>", "start_line": <integer — the line-number prefix where this item's content begins>}
+{"section_type": "<one of the 12 keys above>", "variant_number": <integer — the variant's own printed number if there is one, else your best sequential guess; if the printed number is itself split like "N/M", see SPLIT-SLASH NUMBERING above — report the bare N>, "version_label": "<short label or null>", "start_line": <integer — the line-number prefix where this item's content begins>}
 
 Return ONLY a valid JSON array, ordered by start_line ascending. No \
 markdown wrapper, no explanation. If nothing genuinely matches a \

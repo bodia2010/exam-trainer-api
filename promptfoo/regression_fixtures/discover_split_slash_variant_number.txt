@@ -1,0 +1,29 @@
+00000: Telefonnotiz (вариант №5) (Bürobedarf)
+00001:
+00002: Ссылка на запись: https://t.me/example_channel/00001/000001
+00003:
+00004: Guten Tag, hier spricht Frau Krüger von der Firma Sonnenfeld. Ich habe letzte Woche 150 Ordner bestellt, aber nur 90 sind angekommen. Bitte liefern Sie die fehlenden 60 Ordner bis Freitag nach. Rufen Sie mich bitte zurück, um die Lieferung zu bestätigen. Meine Telefonnummer ist 030 1234567. Vielen Dank und auf Wiederhören.
+00005:
+00006: Beschwerde
+00007: Name: Krüger
+00008: Telefonnummer: 030 1234567
+00009: Weitere Informationen:
+00010: • 150 Ordner bestellt und nur 90 angekommen
+00011: • Die fehlenden 60 Ordner bis Freitag liefern
+00012: Zu erledigen: Zurückrufen, die Lieferung bestätigen.
+00013:
+00014:
+00015: Telefonnotiz (вариант №5/1) (Reinigungsmittel)
+00016:
+00017: Ссылка на запись: https://t.me/example_channel/00002/000002
+00018:
+00019: Guten Tag, hier spricht Herr Baumann von der Firma Klarblick. Wir hatten 80 Flaschen Reiniger bestellt, jedoch sind nur 50 geliefert worden. Bitte schicken Sie die restlichen 30 Flaschen bis Montag nach. Rufen Sie mich bitte zurück. Meine Nummer ist 040 9876543. Vielen Dank und auf Wiederhören.
+00020:
+00021: Beschwerde
+00022: Name: Baumann
+00023: Telefonnummer: 040 9876543
+00024: Weitere Informationen:
+00025: • 80 Flaschen Reiniger bestellt und nur 50 geliefert
+00026: • Die restlichen 30 Flaschen bis Montag liefern
+00027: Zu erledigen: Zurückrufen.
+00028:

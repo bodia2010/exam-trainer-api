@@ -56,3 +56,19 @@ tests:
     assert:
       - type: python
         value: file://assertions.py:single_question_correction_not_split
+
+  # Synthetic regression fixture for a confirmed production inconsistency:
+  # on the same real document, discovery correctly merged a "вариант
+  # №1/1" edition into variant_number=1, but on a structurally identical
+  # "вариант №3/1" edition it concatenated the digits into a brand-new
+  # variant_number=31 instead. prompts.py's DISCOVER prompt now has an
+  # explicit SPLIT-SLASH NUMBERING rule spelling out that "N/M" always
+  # means the M-th edition of variant N, never a new variant N*10+M (or
+  # similar concatenation).
+  - description: "Split-slash variant numbering (N/M) must resolve to variant N, not a concatenated number"
+    vars:
+      section_type: discover
+      markdown: file://regression_fixtures/discover_split_slash_variant_number.txt
+    assert:
+      - type: python
+        value: file://assertions.py:split_slash_variant_number_not_concatenated
