@@ -348,7 +348,16 @@ def iter_items(sections: dict, section_filter: str | None):
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--course-json', required=True, type=Path)
+    parser.add_argument('--course-json', required=True, type=Path,
+                         help='items to actually check and report on')
+    parser.add_argument('--context-course-json', type=Path, default=None,
+                         help='wider course (e.g. the full, previously-'
+                              'curated document) to draw edition '
+                              'cross-references from, when --course-json '
+                              'is itself only a narrow subset (see '
+                              'update_curated_content.py) that may not '
+                              'contain a value\'s sibling edition. '
+                              'Defaults to --course-json itself.')
     parser.add_argument('--source-md', required=True, type=Path)
     parser.add_argument('--section-type', default=None,
                          help='limit the audit to one section_type')
@@ -364,7 +373,8 @@ def main():
     idx = SourceIndex(source_md_text)
     print(f'source.md: {len(idx.source_lines)} lines indexed\n', file=sys.stderr)
 
-    # First pass: every normalized verbatim value anywhere in the course.
+    # First pass: every normalized verbatim value anywhere in the context
+    # course (the full document by default — see --context-course-json).
     # Needed to tell apart the two things that look identical at the
     # surface (our value found next to a '/' in the source) but mean
     # opposite things: (a) one bullet/field genuinely sliced in half —
@@ -378,8 +388,21 @@ def main():
     # half elsewhere in the course. If the "other half" of a slash-split
     # match is itself present as some OTHER field's own value in this
     # same course, (b) is far more likely than (a) — don't flag it.
+    # Confirmed live running update_curated_content.py's narrow review
+    # subset directly: a value whose true sibling edition lived OUTSIDE
+    # the subset (unchanged, so not included) false-positived as
+    # TRUNCATED_AT_SLASH purely because the subset was too small to see
+    # its own sibling — hence this defaulting to --course-json but
+    # overridable to something wider.
+    context_path = args.context_course_json or args.course_json
+    context_course = (course if context_path == args.course_json
+                       else json.loads(context_path.read_text(encoding='utf-8')))
+    context_sections = (context_course.get('sections')
+                         if isinstance(context_course.get('sections'), dict)
+                         else context_course)
+
     all_values: set[str] = set()
-    for section_type, item in iter_items(sections, args.section_type):
+    for section_type, item in iter_items(context_sections, args.section_type):
         for _, value in iter_verbatim_values(item, VERBATIM_FIELDS[section_type]):
             nv = _normalize(value)
             if nv:
