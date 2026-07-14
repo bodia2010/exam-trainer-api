@@ -280,6 +280,12 @@ An answer key like "28 … (a)" maps question numbers 28-31 to statement letters
 Find all sections starting with "Telefonnotiz (вариант №".
 Each variant may have multiple versions (Старый вариант / Новый вариант / dates).
 
+Every line below is prefixed with a 5-digit, zero-padded line number and \
+": ", e.g. "00042: • Vollgetankt wieder abgeben" (that line's number is \
+42). Use ONLY these prefixes to report a position — never invent or \
+estimate a line number. Write start_line/end_line as PLAIN integers with \
+NO leading zeros (42, not "00042").
+
 For each variant return:
 {
   "variant_number": <integer>,
@@ -293,12 +299,46 @@ For each variant return:
         "call_type": "<Beschwerde | Angebot | Buchung | Anfrage>",
         "name": "<caller name>",
         "telefonnummer": "<phone number>",
-        "weitere_informationen": ["<bullet 1>", "<bullet 2>"],
+        "weitere_informationen": [
+          {"start_line": <int>, "end_line": <int>},
+          {"start_line": <int>, "end_line": <int>}
+        ],
         "zu_erledigen": "<action>"
       }
     }
   ]
 }
+
+"weitere_informationen" is NOT the bullet text itself — for EACH bullet \
+in the "Weitere Informationen:" list, report the line-number range \
+where THAT bullet's own text is printed (its own leading "• " marker line \
+through the last line still part of that same bullet, before the next \
+"• " or the "Zu erledigen:" line begins). One bullet is usually one \
+line; if a bullet's text wraps onto a second physical line before the \
+next "• " appears, include that second line too (start_line != \
+end_line). Never merge two DIFFERENT "• "-prefixed bullets into one \
+span, and never include the "Zu erledigen:" line as if it were a bullet.
+
+A bullet line sometimes has a "/" in it, and this means one of two \
+different things — decide which exactly like you already would if you \
+were retyping it yourself, just express the decision as "slash_index" \
+instead: (a) this ONE edition's own bullet happens to have two \
+alternate readings of the same fact (e.g. an unclear recording) — both \
+belong to THIS edition, so omit "slash_index" (or set it to -1) and the \
+FULL line text is kept, "/" and all; (b) the SAME printed answer-key \
+block is shared by SEVERAL editions at once, and this field's value for \
+each edition is joined by "/" in printed order (e.g. "Name: Mayer/ \
+Meyer / Azrael" printed once, covering three editions) — figure out \
+which 0-based position is THIS edition's own value (same way you'd \
+know which name belongs to which edition if retyping) and set \
+"slash_index" to that position, so only that one slash-separated part \
+is used. This applies to every "weitere_informationen" bullet AND to \
+"name"/"telefonnummer"/"zu_erledigen" the same way when those are also \
+part of a block shared by multiple editions — but those three fields \
+are still plain retyped text (only "weitere_informationen" uses line \
+spans), so for THEM the decision is made by writing out the correct \
+single value directly, same as always, never a literal "/" or a \
+placeholder.
 
 Rules:
 - Ignore page numbers and Russian meta-text
@@ -306,7 +346,7 @@ Rules:
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block is one distinct edition of a variant, already identified as separate. Group blocks that share the same variant_number under one object, but include EVERY block as its own entry in that object's "versions" list — never merge two blocks into one versions entry and never skip a block, even if two blocks look very similar to each other.
 - "monologue" must be the EXACT wording from the source, copied verbatim — never summarize or shorten it. A student preparing for the real exam needs to see precisely what would appear on it.
 - The "answer" block is NOT something to infer from the monologue — it's a separate, already-filled-in answer key printed in the source right after the monologue, structured as its own labeled fields (a call-type heading like "Angebot"/"Buchung"/etc., "Name:", "Telefonnummer:", a "Weitere Informationen:" bullet list, and a "Zu erledigen:" line). Read each field from its own label, verbatim — do not paraphrase, and do not leave any of the five fields empty/omitted just because it takes a second look at the source to find where that specific label appears.
-- Some sources genuinely leave a field blank (e.g. "Telefonnummer:" with nothing after it, dots like "................." in place of a number, or an edition with no monologue transcript printed at all, only its answer key). Never invent a plausible-looking value to fill a genuine gap. Instead write the literal string "(nicht angegeben)" for that field (or, for "weitere_informationen", a single-item list `["(nicht angegeben)"]`) — this is different from simply not finding the label on the page, which means look again.
+- Some sources genuinely leave a field blank (e.g. "Telefonnummer:" with nothing after it, dots like "................." in place of a number, or an edition with no monologue transcript printed at all, only its answer key). Never invent a plausible-looking value to fill a genuine gap. Instead write the literal string "(nicht angegeben)" for that field — this is different from simply not finding the label on the page, which means look again. For "weitere_informationen" specifically, if this edition genuinely prints no "Weitere Informationen:" bullets at all, return the single-item list [{"start_line": -1, "end_line": -1}] (the sentinel position) instead of an empty list or a made-up span.
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.
 
 MARKDOWN:

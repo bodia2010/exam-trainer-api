@@ -8,6 +8,8 @@ import requests
 from flask import Flask, request, jsonify, Response
 from markitdown import MarkItDown
 from prompts import PROMPTS
+from answer_markers import _inject_answer_markers
+import line_extraction
 import generation_config
 import firebase_auth
 import firestore_client
@@ -288,7 +290,8 @@ def convert():
 
     try:
         result = MarkItDown().convert(tmp_path)
-        return jsonify({'markdown': result.text_content})
+        markdown = _inject_answer_markers(tmp_path, result.text_content)
+        return jsonify({'markdown': markdown})
     except Exception as e:
         # MarkItDown's raw exception can embed the local tmp file path —
         # keep it server-side only, never in the client-facing response.
@@ -375,6 +378,61 @@ def _call_gemini(prompt: str, section_type: str = '', is_premium: bool = False) 
     raise GeminiError(502, f'Gemini request failed (HTTP {last_status}).')
 
 
+# Sentinel line-span the telefonnotiz prompt uses for "this edition
+# genuinely prints no Weitere Informationen bullets" (prompts.py) — kept
+# in sync with the exact position (-1, -1), not just "any invalid span",
+# so a genuinely out-of-range span from a Gemini mistake still surfaces
+# as a visibly wrong bullet instead of silently matching this branch.
+_NO_BULLETS_SPAN = (-1, -1)
+_NO_ANSWER_SENTINEL = '(nicht angegeben)'
+
+
+def _resolve_telefonnotiz_spans(parsed: list, markdown: str) -> list:
+    """Walks a telefonnotiz parse response and replaces every
+    answer.weitere_informationen[] {start_line, end_line} pointer with
+    the actual bullet text sliced from `markdown` — see
+    line_extraction.py and prompts.py's telefonnotiz entry for why this
+    exists (line-span extraction instead of retyped text, so a bullet
+    can't be truncated the way "<X> / <Y>" bullets confirmed were
+    yesterday). Leaves everything else in `parsed` untouched. Malformed
+    span entries (wrong shape, out of range after clamping still empty)
+    degrade to the same "(nicht angegeben)" sentinel rather than raising
+    — a single bad span must not fail the whole variant's parse."""
+    raw_lines = markdown.split('\n')
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        for version in item.get('versions') or []:
+            if not isinstance(version, dict):
+                continue
+            answer = version.get('answer')
+            if not isinstance(answer, dict):
+                continue
+            spans = answer.get('weitere_informationen')
+            if not isinstance(spans, list):
+                continue
+            resolved = []
+            for span in spans:
+                if (
+                    isinstance(span, dict)
+                    and (span.get('start_line'), span.get('end_line')) == _NO_BULLETS_SPAN
+                ):
+                    resolved.append(_NO_ANSWER_SENTINEL)
+                    continue
+                try:
+                    start = int(span['start_line'])
+                    end = int(span['end_line'])
+                    slash_index = span.get('slash_index')
+                    slash_index = int(slash_index) if slash_index is not None else None
+                    text = line_extraction.extract_span(
+                        raw_lines, start, end, strip_bullet=True, slash_index=slash_index)
+                except (KeyError, TypeError, ValueError):
+                    text = ''
+                resolved.append(text or _NO_ANSWER_SENTINEL)
+            answer['weitere_informationen'] = resolved
+    return parsed
+
+
 @app.route('/api/parse', methods=['POST', 'OPTIONS'])
 def parse():
     if request.method == 'OPTIONS':
@@ -449,13 +507,25 @@ def parse():
                          'for full documents.'
             }), 403
 
-    prompt = prompt_template.replace('{markdown}', markdown)
+    # telefonnotiz's weitere_informationen bullets are extracted as
+    # {start_line, end_line} pointers instead of retyped text (see
+    # line_extraction.py's module docstring for why) — the prompt needs
+    # the SAME numbered-line format discover already uses so Gemini has
+    # something to point at; `markdown` itself stays the raw text, sliced
+    # against below once a response comes back.
+    prompt_markdown = markdown
+    if section_type == 'telefonnotiz':
+        prompt_markdown = line_extraction.number_markdown(markdown)
+
+    prompt = prompt_template.replace('{markdown}', prompt_markdown)
 
     text = ''
     try:
         text = _call_gemini(prompt, section_type, is_premium=premium).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        if section_type == 'telefonnotiz':
+            text = json.dumps(_resolve_telefonnotiz_spans(json.loads(text), markdown))
         if section_type == 'discover':
             # The discover prompt's numbered-line input ("00042: ...")
             # sometimes leaked zero-padded numbers straight into the JSON

@@ -218,13 +218,53 @@ HOEREN_TEIL1_SCHEMA = {
 # with no reworked edition, more otherwise) — so only minItems:1 (must
 # have at least the original), no maxItems. No dedup sentinel was ever
 # used for this type, so nothing to remove from the prompt.
+
+# Line-span pointer instead of retyped text — main.py slices the actual
+# words out of the numbered chunk after the fact (see line_extraction.py).
+# Confirmed live yesterday: asking Gemini to retype a "<X> / <Y>" bullet
+# verbatim sometimes kept only one half. A pointer can't be truncated the
+# same way — there's no text generation step left to drop half of.
+# start_line == end_line == -1 is the sentinel for "this edition
+# genuinely has no bullets printed" (see prompts.py) — main.py maps that
+# back to the pre-existing "(nicht angegeben)" convention rather than
+# attempting a slice, so weitere_informationen's OWN final shape (list of
+# strings) and every downstream consumer (client validation, UI) are
+# completely unchanged.
+#
+# slash_index: confirmed live testing on a real chunk that "/" in this
+# source means two DIFFERENT things a line pointer alone can't tell
+# apart: (a) one edition's own bullet with two alternate readings of the
+# SAME fact ("Weiße und grüne Farbe mitbringen / Farbe: weiß und rot") —
+# keep the whole thing, both alternates belong to this edition; or (b) a
+# single answer-key block PRINTED ONCE but covering several editions,
+# each field holding each edition's own value joined by "/" ("Name:
+# Mayer/ Meyer / Azrael") — this edition needs only ITS OWN slice.
+# Omitted/-1 means case (a) (keep the full line text, unsplit — the
+# default, and what most bullets need). A non-negative integer means
+# case (b): split the extracted text on "/" and take that 0-based
+# segment. The model already made this exact judgment call under the
+# old retyping-based prompt (it correctly wrote "Mayer" for one edition
+# and "Meyer" for another from this same shared line) — this only
+# changes HOW it expresses that choice, from retyping a pre-decided
+# substring to pointing at which one, so a later mechanical step can't
+# introduce a NEW truncation bug on top of an already-correct decision.
+_LINE_SPAN = {
+    'type': 'OBJECT',
+    'properties': {
+        'start_line': {'type': 'INTEGER'},
+        'end_line': {'type': 'INTEGER'},
+        'slash_index': {'type': 'INTEGER', 'nullable': True},
+    },
+    'required': ['start_line', 'end_line'],
+}
+
 _TELEFONNOTIZ_ANSWER = {
     'type': 'OBJECT',
     'properties': {
         'call_type': {'type': 'STRING'},
         'name': {'type': 'STRING'},
         'telefonnummer': {'type': 'STRING'},
-        'weitere_informationen': {'type': 'ARRAY', 'items': {'type': 'STRING'}},
+        'weitere_informationen': {'type': 'ARRAY', 'items': _LINE_SPAN},
         'zu_erledigen': {'type': 'STRING'},
     },
     'required': ['call_type', 'name', 'telefonnummer', 'zu_erledigen'],
