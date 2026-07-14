@@ -22,6 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from response_schemas import _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
+import line_extraction  # noqa: E402
 
 
 def _parse(output):
@@ -261,3 +262,88 @@ def split_slash_variant_number_not_concatenated(output, context):
                           f'{originals}, editions={editions}'}
     return {'pass': True, 'score': 1,
             'reason': f'both editions correctly reported under variant_number 5: {telefonnotiz}'}
+
+
+def telefonnotiz_shared_answer_block_splits_correctly(output, context):
+    """Parse regression check for the shared-answer-block discovery from
+    2026-07-14: this source sometimes prints ONE answer-key block shared
+    by several editions, each field's value joined by "/" in printed
+    order — different from a single edition's own bullet that legitimately
+    contains "/" as two alternate readings of the SAME fact (which must
+    stay joined). The fixture this runs against
+    (regression_fixtures/telefonnotiz_shared_answer_block_slash_index.txt)
+    embeds exactly that: 2 editions ("Alte Version" / "Neue Version"),
+    ONE shared "Weitere Informationen:"/"Name:"/"Telefonnummer:" block
+    printed once, each field's value a "/"-joined pair.
+
+    Resolves weitere_informationen's {start_line, end_line, slash_index}
+    pointers with the REAL line_extraction.extract_span (not a
+    reimplementation) against the fixture's own raw lines, then checks:
+    both editions must end up with DIFFERENT, non-"/"-containing text for
+    the shared bullets (proving slash_index actually split the block,
+    matching each edition's own monologue) — a regression that stops
+    resolving slash_index would instead leave both editions with the
+    same full "X / Y" text, or a raw "/" leaking through."""
+    if context['vars'].get('section_type') != 'telefonnotiz':
+        return {'pass': True, 'score': 1, 'reason': 'not applicable to this section type'}
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+
+    raw_lines = context['vars']['markdown'].split('\n')
+    variant = next((o for o in objects if o.get('variant_number') == 12), None)
+    if variant is None:
+        return {'pass': False, 'score': 0,
+                'reason': f'no variant_number == 12 object found: {objects}'}
+    versions = variant.get('versions') or []
+    if len(versions) != 2:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected exactly 2 versions (one per edition), got '
+                          f'{len(versions)}: {versions}'}
+
+    resolved = []
+    for v in versions:
+        answer = v.get('answer') or {}
+        spans = answer.get('weitere_informationen')
+        if not isinstance(spans, list) or not spans:
+            return {'pass': False, 'score': 0,
+                    'reason': f'version {v.get("label")!r} has no weitere_informationen spans: {answer}'}
+        texts = []
+        for span in spans:
+            if not isinstance(span, dict) or 'start_line' not in span or 'end_line' not in span:
+                return {'pass': False, 'score': 0,
+                         'reason': f'weitere_informationen entry is not a {{start_line, end_line}} '
+                                   f'span (retyped text instead?): {span!r}'}
+            try:
+                start, end = int(span['start_line']), int(span['end_line'])
+            except (TypeError, ValueError):
+                return {'pass': False, 'score': 0, 'reason': f'non-integer span: {span!r}'}
+            slash_index = span.get('slash_index')
+            texts.append(line_extraction.extract_span(
+                raw_lines, start, end, strip_bullet=True,
+                slash_index=int(slash_index) if slash_index is not None else None))
+        resolved.append((v.get('label'), texts, answer.get('name')))
+
+    (label_a, texts_a, name_a), (label_b, texts_b, name_b) = resolved
+
+    leaked_slash = [t for t in texts_a + texts_b if '/' in t]
+    if leaked_slash:
+        return {'pass': False, 'score': 0,
+                'reason': f'resolved bullet text still contains a raw "/" — slash_index was '
+                          f'not applied: {leaked_slash}'}
+
+    if texts_a == texts_b:
+        return {'pass': False, 'score': 0,
+                'reason': f'both editions resolved to IDENTICAL weitere_informationen '
+                          f'({texts_a}) — the shared block was not split per-edition '
+                          f'(slash_index ignored or both set the same)'}
+
+    if not name_a or not name_b or name_a == name_b or '/' in (name_a or '') or '/' in (name_b or ''):
+        return {'pass': False, 'score': 0,
+                'reason': f'plain-text "name" field not correctly resolved per edition: '
+                          f'{label_a}={name_a!r}, {label_b}={name_b!r}'}
+
+    return {'pass': True, 'score': 1,
+            'reason': f'shared answer block correctly split per edition: '
+                      f'{label_a}={texts_a}/{name_a!r}, {label_b}={texts_b}/{name_b!r}'}

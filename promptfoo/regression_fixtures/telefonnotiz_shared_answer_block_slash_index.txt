@@ -1,0 +1,19 @@
+Telefonnotiz (вариант №12), Thema: Kopierer-Reparatur
+
+<<<ITEM>>>
+Alte Version
+
+Herr Krause ruft von der Firma Bauer GmbH an. Er sagt, dass heute ein Techniker kommen sollte, um den Kopierer zu reparieren, aber niemand ist gekommen. Der Kopierer druckt außerdem nur noch schwarz-weiß, obwohl er eigentlich auch Farbe drucken sollte. Die Garantie für das Gerät läuft in zwei Wochen ab, deshalb möchte er das Problem dringend gelöst haben. Er bittet um einen Rückruf bis spätestens Freitagnachmittag.
+
+<<<ITEM>>>
+Neue Version vom 03.2025
+
+Frau Winter meldet sich von der Firma Bauer GmbH. Sie berichtet, dass der vereinbarte Technikertermin heute nicht wahrgenommen wurde und niemand erschienen ist. Außerdem zeigt der Kopierer eine Fehlermeldung an und funktioniert seitdem gar nicht mehr. Da die Garantie in zwei Wochen abläuft, bittet sie um schnelle Rückmeldung, spätestens bis Freitagnachmittag.
+
+Beschwerde
+Name: Krause/ Winter
+Telefonnummer: 030 1234567/ 030 7654321
+Weitere Informationen:
+• Techniker nicht gekommen wie vereinbart / vereinbarter Termin nicht wahrgenommen, niemand erschienen
+• Kopierer druckt nur noch schwarz-weiß / Kopierer zeigt Fehlermeldung an, funktioniert nicht mehr
+Zu erledigen: Rückruf bis spätestens Freitagnachmittag

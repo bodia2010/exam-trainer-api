@@ -75,3 +75,11 @@ tests:
       section_type: beschwerde
       markdown: file://regression_fixtures/beschwerde_single_question_correction.txt
       min_items: 1
+  - description: "telefonnotiz — shared answer-key block across 2 editions must split via slash_index, not duplicate or leak raw '/'"
+    vars:
+      section_type: telefonnotiz
+      markdown: file://regression_fixtures/telefonnotiz_shared_answer_block_slash_index.txt
+      min_items: 1
+    assert:
+      - type: python
+        value: file://assertions.py:telefonnotiz_shared_answer_block_splits_correctly
