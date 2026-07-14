@@ -6,7 +6,7 @@ import asyncio
 import tempfile
 import requests
 from flask import Flask, request, jsonify, Response
-from markitdown import MarkItDown
+import pdfminer.high_level
 from prompts import PROMPTS
 from answer_markers import _inject_answer_markers
 import line_extraction
@@ -289,11 +289,25 @@ def convert():
         tmp_path = f.name
 
     try:
-        result = MarkItDown().convert(tmp_path)
-        markdown = _inject_answer_markers(tmp_path, result.text_content)
+        # Was MarkItDown().convert(tmp_path) — that call is, for a PDF,
+        # nothing but pdfminer.high_level.extract_text() plus the two
+        # normalization lines below (markitdown._markitdown._convert's
+        # post-processing); everything else MarkItDown does before that
+        # (magika-based file-type sniffing, pulling in onnxruntime+numpy,
+        # ~126MB) is guessing a file type we already know — this file was
+        # just written with suffix='.pdf' specifically for this call.
+        # Calling pdfminer directly produces byte-identical output
+        # (verified against the old code path on a real PDF) while
+        # freeing enough of the function's size budget to fit PyMuPDF
+        # (answer_markers.py) in the same deployment.
+        with open(tmp_path, 'rb') as f:
+            raw_text = pdfminer.high_level.extract_text(f)
+        text = '\n'.join(line.rstrip() for line in re.split(r'\r?\n', raw_text))
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        markdown = _inject_answer_markers(tmp_path, text)
         return jsonify({'markdown': markdown})
     except Exception as e:
-        # MarkItDown's raw exception can embed the local tmp file path —
+        # The raw exception can embed the local tmp file path —
         # keep it server-side only, never in the client-facing response.
         print(f'CONVERT_ERROR {type(e).__name__}: {e}')
         return jsonify({'error': 'Could not convert this PDF.'}), 500

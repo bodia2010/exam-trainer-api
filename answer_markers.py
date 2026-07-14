@@ -30,12 +30,14 @@ ship) and main.py's import stays a flat, single-file dependency PyMuPDF
 aside.
 
 Requires PyMuPDF (`pymupdf` — imported as `fitz`), added to
-requirements.txt for this to work in the deployed function. See the
-size-impact note passed back to the caller of this change; PyMuPDF's own
-wheel is a meaningful chunk of a Vercel serverless function's package
-budget on top of what markitdown[pdf] (onnxruntime, numpy, pdfminer)
-already costs, so this is deliberately reported rather than silently
-shipped.
+requirements.txt for this to work in the deployed function. Fits under
+Vercel's package size limit alongside pdfminer.six only because main.py
+no longer goes through the full markitdown package for PDF conversion —
+markitdown's own onnxruntime+numpy weight (~126MB, pulled in solely for
+ML-based file-type detection the pipeline never needed, since /api/convert
+already knows its input is a PDF) was dropped in favor of calling
+pdfminer.six directly for the exact same output (see main.py's convert()
+route for the byte-identical-output reasoning).
 """
 from __future__ import annotations
 
