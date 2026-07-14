@@ -5,17 +5,10 @@
 
 ## 1. Сразу, без раздумий (~15 минут суммарно)
 
-- [ ] **Прогнать отложенный promptfoo-тест** (Фаза B, правило "X/Y"-нумерации
-  вариантов). Код и фикстура готовы, ждал восстановления Gemini
-  (`gemini-3.5-flash` был в затяжном 503 на момент завершения сессии).
-  ```
-  cd exam-trainer-api/promptfoo
-  GEMINI_API_KEY=... GOOGLE_API_KEY=... npx promptfoo@latest eval \
-    -c promptfooconfig.discover.yaml --no-cache
-  ```
-  Если хочется прогнать только новый тест (не дорогой full-document) —
-  использовать изолированный конфиг с одним test-кейсом на
-  `regression_fixtures/discover_split_slash_variant_number.txt`.
+- [x] **Прогнать отложенный promptfoo-тест** (Фаза B, правило "X/Y"-нумерации
+  вариантов). ✅ 2026-07-14: PASS — оба item'а ("вариант №5" и
+  "вариант №5/1") корректно вернулись под variant_number=5, один с
+  version_label=null (оригинал), другой с изданием. Правило работает.
 
 - [ ] **Почистить временную диагностику** в `main.py`:
   `DEBUG_GROUP_BOUNDS` и `DEBUG_DISCOVER_ENTRIES` — помечены как

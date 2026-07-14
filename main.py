@@ -389,14 +389,6 @@ def parse():
     markdown = body.get('markdown', '')
     section_type = body.get('section_type', '')
 
-    # TEMPORARY diagnostic for a live hoeren_teil4 content-truncation bug
-    # report — first/last 80 chars only (never the middle/full content),
-    # enough to see which message the group actually starts/ends at
-    # without logging real exam answers. Remove once the bug is found.
-    if section_type == 'hoeren_teil4':
-        print(f'DEBUG_GROUP_BOUNDS len={len(markdown)} '
-              f'start={markdown[:80]!r} end={markdown[-80:]!r}')
-
     prompt_template = PROMPTS.get(section_type)
     if not prompt_template:
         return jsonify({'error': f'Unknown section_type: {section_type}'}), 400
@@ -478,20 +470,6 @@ def parse():
             # should make this unreachable going forward — kept as a
             # harmless fallback rather than removed outright.
             text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
-            # TEMPORARY diagnostic for the same hoeren_teil4 bug — dump
-            # every discovered entry mentioning hoeren_teil4 (structural
-            # fields only: type/variant/start_line, never real content) to
-            # see exactly what discovery produced, instead of guessing
-            # from downstream symptoms. Remove once the bug is found.
-            try:
-                parsed_discover = json.loads(text)
-                relevant = [e for e in parsed_discover
-                            if isinstance(e, dict)
-                            and 'hoeren_teil4' in str(e.get('section_type', ''))]
-                if relevant:
-                    print(f'DEBUG_DISCOVER_ENTRIES {relevant}')
-            except Exception:
-                pass
         return jsonify(json.loads(text))
     except GeminiError as e:
         return jsonify({'error': str(e)}), e.status_code
