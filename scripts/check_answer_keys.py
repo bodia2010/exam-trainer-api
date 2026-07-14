@@ -123,7 +123,15 @@ def main():
           file=sys.stderr)
 
     course = json.loads(args.course_json.read_text(encoding='utf-8'))
-    sections = course.get('sections', {})
+    # Accept either the full course.json shape ({"sections": {...}, ...})
+    # or the bare {section_type: [items]} dict — same convention as
+    # check_verbatim_content.py / update_curated_content.py. Without this,
+    # update_curated_content.py's --out-review (bare dict, by design —
+    # see its build_review_course()) silently produced zero findings here:
+    # course.get('sections', {}) returned {} for a dict with no top-level
+    # "sections" key at all, despite the docstring above claiming this
+    # exact file feeds straight into this script.
+    sections = course.get('sections') if isinstance(course.get('sections'), dict) else course
 
     counts = defaultdict(int)
     for section_type, qlabel, q in iter_questions(sections):
