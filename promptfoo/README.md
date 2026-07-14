@@ -50,7 +50,7 @@ APK"), run:
 This is the one command that gives a single PASS/FAIL verdict across both
 configs:
 
-- `promptfooconfig.parse.yaml` runs once — any failure (any of the 14
+- `promptfooconfig.parse.yaml` runs once — any failure (any of the 18
   tests) fails the gate. Parse is not documented as flaky anywhere, so
   there's zero tolerance here.
 - `promptfooconfig.discover.yaml` runs up to 3 times, because its own

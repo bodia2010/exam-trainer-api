@@ -81,6 +81,21 @@ _TEXT_ITEM = {
     'required': ['title', 'content'],
 }
 
+_TEXT_SPAN_ITEM = {
+    'type': 'OBJECT',
+    'properties': {
+        'title': {'type': 'STRING'},
+        'start_line': {'type': 'INTEGER'},
+        'end_line': {'type': 'INTEGER'},
+        'heading_lines': {
+            'type': 'ARRAY',
+            'items': {'type': 'INTEGER'},
+            'nullable': True,
+        },
+    },
+    'required': ['title', 'start_line', 'end_line'],
+}
+
 _OPTION_ITEM = {
     'type': 'OBJECT',
     'properties': {
@@ -91,7 +106,11 @@ _OPTION_ITEM = {
 }
 
 
-def _universal_variant_schema(question_count: int) -> dict:
+SPAN_TEXT_SECTION_TYPES = {'lesen_teil2', 'hoeren_teil4'}
+
+
+def _universal_variant_schema(question_count: int, span_texts: bool = False) -> dict:
+    text_item = _TEXT_SPAN_ITEM if span_texts else _TEXT_ITEM
     return {
         'type': 'OBJECT',
         'properties': {
@@ -99,7 +118,7 @@ def _universal_variant_schema(question_count: int) -> dict:
             'version': {'type': 'STRING', 'nullable': True},
             'topic': {'type': 'STRING', 'nullable': True},
             'audio_url': {'type': 'STRING', 'nullable': True},
-            'texts': {'type': 'ARRAY', 'items': _TEXT_ITEM, 'minItems': 1},
+            'texts': {'type': 'ARRAY', 'items': text_item, 'minItems': 1},
             'option_pool': {'type': 'ARRAY', 'items': _OPTION_ITEM},
             'questions': {
                 'type': 'ARRAY',
@@ -365,5 +384,8 @@ def schema_for(section_type: str):
     return {
         'type': 'ARRAY',
         'minItems': 1,
-        'items': _universal_variant_schema(count),
+        'items': _universal_variant_schema(
+            count,
+            span_texts=section_type in SPAN_TEXT_SECTION_TYPES,
+        ),
     }

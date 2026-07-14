@@ -31,6 +31,8 @@ defaultTest:
       value: file://assertions.py:expected_question_count
     - type: python
       value: file://assertions.py:texts_not_empty
+    - type: python
+      value: file://assertions.py:span_texts_resolve_cleanly
 
 tests:
   - description: "lesen_teil1 — heaviest multi-edition variant"
@@ -69,6 +71,16 @@ tests:
     vars:
       section_type: hoeren_teil4
       markdown: file://regression_fixtures/hoeren_teil4_single_question_correction.txt
+      min_items: 1
+  - description: "hoeren_teil4 — genuinely missing phone message must use the -1,-1 text sentinel"
+    vars:
+      section_type: hoeren_teil4
+      markdown: file://regression_fixtures/hoeren_teil4_missing_text_sentinel.txt
+      min_items: 1
+  - description: "lesen_teil2 — synthetic span boundaries must stay inside source text"
+    vars:
+      section_type: lesen_teil2
+      markdown: file://regression_fixtures/lesen_teil2_span_boundaries.txt
       min_items: 1
   - description: "beschwerde — single-question answer correction must not split the variant or drop content"
     vars:

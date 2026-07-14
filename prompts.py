@@ -14,7 +14,7 @@ For each variant return a JSON object:
   "version": "<short version label or null>",
   "topic": "<short topic or null>",
   "audio_url": "<telegram url of the recording, or null>",
-  "texts": [{"title": "<label>", "content": "<full text>"}],
+  "texts": [{texts_example}],
   "option_pool": [{"letter": "a", "text": "<option text>"}],
   "questions": [
     {"number": <int>, "type": "true_false", "text": "<statement>", "answer": "richtig|falsch"},
@@ -30,8 +30,7 @@ Common rules:
 - A label like "Новый вариант от <date>" or "Варианты ответов от <date>" placed right after ONE SINGLE already-numbered question, giving that ONE question new a)/b)/c) options, is NOT an edition — it's a later correction to that one question, and the whole variant stays ONE object. Between the two option blocks for that question number, use whichever one has a clearly marked "– 100%"/correct answer; if one block has an incomplete option (a blank option, or one ending in "?"), it is not usable — use the other block. Never output two objects, and never two competing answers for the same question number, over a single-question correction like this.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
 - Every edition (including reworked ones) must contain its OWN full "texts" and "option_pool" — repeat the identical content word-for-word if it doesn't change between editions. Never leave these empty or shortened, and never use a placeholder in place of the real content.
-- "texts[].content" and every "options[].text" must be the EXACT wording from the source, copied verbatim (aside from the de-hyphenation rule below) — never summarize, shorten, or paraphrase a transcript/passage/option into your own words. A student preparing for the real exam needs to see precisely what would appear on it. Where a "text" (question stem) isn't printed verbatim in the source and must be phrased to introduce the options, keep it minimal and neutral rather than inventing exam-style phrasing not in the source.
-- HEADINGS: when a line within "texts[].content" is visually set apart from the surrounding prose as its own heading or sub-heading (bold, underlined, or otherwise distinct from body text — e.g. a meeting-minutes agenda item like "TOP 1 Begrüßung und Genehmigung der Tagesordnungspunkte", or a document sub-section title like "Zugangskontrolle und Zeiterfassung"), wrap just that line in double asterisks: "**TOP 1 Begrüßung...**". This is a structural annotation the app renders as bold, not a change to the wording — the text inside the asterisks is still the exact verbatim heading text, nothing more. Never wrap ordinary body prose, individual words for emphasis, or the "title" field this way — only genuine standalone headings inside "content".
+{texts_rules}
 - The response format requires EXACTLY the number of questions the section description above specifies, every time, for every edition — never fewer. Never invent facts, but every required question slot must still get its best-supported answer from context; if a marker is ambiguous, use the most clearly-marked or most complete option rather than omitting the question. The one exception: if this specific edition's block has NO question text/options printed for a slot at all (not just an ambiguous marker — genuinely nothing there, e.g. the block ends before that question number is ever reached), do not fabricate a plausible-sounding question or answer for it. Instead use "type": "choice", "text" and "answer" both set to the literal string "(nicht angegeben)", and "options" set to the single-item list [{"letter": "a", "text": "(nicht angegeben)"}] — this keeps the required question slot filled without inventing content that was never in the source.
 - De-hyphenate words the PDF split across a print line break (e.g. "Ausbildungs-\nkonzept" -> "Ausbildungskonzept") — texts must read as normal continuous prose, no stray hyphens or line breaks mid-word
 - Ignore page numbers (lines with only digits) and Russian meta-commentary
@@ -41,8 +40,28 @@ MARKDOWN:
 {markdown}"""
 
 
-def _u(hint):
-    return _UNIVERSAL.replace('{hint}', hint)
+_RETYPE_TEXTS_EXAMPLE = '{"title": "<label>", "content": "<full text>"}'
+
+_RETYPE_TEXTS_RULES = """- "texts[].content" and every "options[].text" must be the EXACT wording from the source, copied verbatim (aside from the de-hyphenation rule below) — never summarize, shorten, or paraphrase a transcript/passage/option into your own words. A student preparing for the real exam needs to see precisely what would appear on it. Where a "text" (question stem) isn't printed verbatim in the source and must be phrased to introduce the options, keep it minimal and neutral rather than inventing exam-style phrasing not in the source.
+- HEADINGS: when a line within "texts[].content" is visually set apart from the surrounding prose as its own heading or sub-heading (bold, underlined, or otherwise distinct from body text — e.g. a meeting-minutes agenda item like "TOP 1 Begrüßung und Genehmigung der Tagesordnungspunkte", or a document sub-section title like "Zugangskontrolle und Zeiterfassung"), wrap just that line in double asterisks: "**TOP 1 Begrüßung...**". This is a structural annotation the app renders as bold, not a change to the wording — the text inside the asterisks is still the exact verbatim heading text, nothing more. Never wrap ordinary body prose, individual words for emphasis, or the "title" field this way — only genuine standalone headings inside "content"."""
+
+_SPAN_TEXTS_EXAMPLE = '{"title": "<label>", "start_line": <int>, "end_line": <int>, "heading_lines": [<int>]}'
+
+_SPAN_TEXTS_RULES = """- Every line below is prefixed with a 5-digit, zero-padded line number and ": ", e.g. "00042: Zugangskontrolle und Zeiterfassung" (that line's number is 42). Use ONLY these prefixes to report a text span — never invent or estimate a line number. Write start_line/end_line/heading_lines as PLAIN integers with NO leading zeros (42, not "00042"). Both start_line and end_line must name existing numbered source lines, and start_line must be less than or equal to end_line. Never use a negative line number except the exact -1/-1 missing-text sentinel defined below.
+- "texts" entries are NOT the passage/transcript text itself. For each text, return "title" plus the inclusive line-number span where THAT text is printed: {"title": "<label>", "start_line": <int>, "end_line": <int>, "heading_lines": [<int>...]}. The server will slice the actual content mechanically from those lines.
+- A text span must cover the whole block of THIS reading passage or THIS audio message/transcript, from its first printed line through its last printed line. Do not include the questions, answer options, answer-key markers, Russian meta-commentary, or page numbers after it.
+- Never merge two different texts into one span. For Hören Teil 4 there are five separate messages, Nummer 36 through Nummer 40; output five separate "texts" entries, one span per Nummer/message.
+- "heading_lines" is optional/null/[] unless a line inside the text span is visually set apart from surrounding prose as its own heading or sub-heading (bold, underlined, or otherwise distinct from body text — e.g. "Zugangskontrolle und Zeiterfassung"). Include ONLY the absolute line numbers of genuine standalone headings. Never include ordinary body prose, individual words for emphasis, or the "title" field itself.
+- If this specific edition genuinely does not print the passage/transcript text at all (only questions/options or an answer key are present), do not invent a transcript and do not point at unrelated text. Return exactly {"title": "(nicht angegeben)", "start_line": -1, "end_line": -1} for that missing text."""
+
+
+def _u(hint, span_texts=False):
+    return (
+        _UNIVERSAL
+        .replace('{hint}', hint)
+        .replace('{texts_example}', _SPAN_TEXTS_EXAMPLE if span_texts else _RETYPE_TEXTS_EXAMPLE)
+        .replace('{texts_rules}', _SPAN_TEXTS_RULES if span_texts else _RETYPE_TEXTS_RULES)
+    )
 
 
 # ─── Structure discovery ────────────────────────────────────────────────────
@@ -173,8 +192,8 @@ Then 8 short texts a)-h), each with a headline in the first line.
 'lesen_teil2': _u("""Section: Lesen Teil 2 (reading a workplace text).
 Variants start with "Text 1 (вариант №" or "Text 2 (вариант №".
 topic = "Text 1" or "Text 2" plus the subject of the passage.
-- texts: the reading passage, title = its heading
-- questions: one true_false (a statement followed by "Richtig / falsch") and one choice (stem with a) b) c) options). Question numbers are as printed (6, 7, 8, 9...). Determine the correct answer from markers or, if unmarked, from the passage content."""),
+- texts: one span for the reading passage, title = its heading. The span starts at the passage heading or first body line and ends at the final body line before the first question.
+- questions: one true_false (a statement followed by "Richtig / falsch") and one choice (stem with a) b) c) options). Question numbers are as printed (6, 7, 8, 9...). Determine the correct answer from markers or, if unmarked, from the passage content.""", span_texts=True),
 
 'lesen_teil3': _u("""Section: Lesen Teil 3 (matching forum answers).
 Variants start with "Lesen Teil 3 (вариант №".
@@ -212,9 +231,9 @@ audio_url = the "Ссылка на запись" telegram link.
 Variants start with "Hören Teil 4 (вариант №".
 audio_url = the telegram link near the header.
 Five messages "Nummer 36".."Nummer 40", each followed by a choice question with the same number.
-- texts: one entry per message, title = "Nummer <N> <name>", content = the message transcript
+- texts: one span per message, title = "Nummer <N> <name>". The span starts at the "Nummer <N>" line or first transcript line and ends at the final transcript line before that Nummer's question.
 - questions 36-40: type "choice" with a) b) c); the correct option is marked "– 100%"
-- A question sometimes has a SECOND a) b) c) block right after it, introduced by "Варианты ответов от <date>" — this is a later correction to that ONE question's answer, not a new variant. Pick whichever block has a clearly marked "– 100%" answer; if a block has an incomplete option (a blank line after "b)", or "c) ?" with no text), it is not usable — use the other block instead. Output exactly ONE answer per question number, 5 questions total — never two objects and never two competing answers for the same number."""),
+- A question sometimes has a SECOND a) b) c) block right after it, introduced by "Варианты ответов от <date>" — this is a later correction to that ONE question's answer, not a new variant. Pick whichever block has a clearly marked "– 100%" answer; if a block has an incomplete option (a blank line after "b)", or "c) ?" with no text), it is not usable — use the other block instead. Output exactly ONE answer per question number, 5 questions total — never two objects and never two competing answers for the same number.""", span_texts=True),
 
 'hoeren_teil1': """Parse German B2 Beruf exam Hören Teil 1 exercises from the Markdown below.
 

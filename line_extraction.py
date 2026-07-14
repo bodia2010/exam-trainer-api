@@ -3,8 +3,8 @@ retype a verbatim field (source of paraphrasing/truncation bugs — see
 DISCOVERY_BUG_ANALYSIS.md and yesterday's check_verbatim_content.py
 findings), the prompt asks for a {start_line, end_line} pointer into a
 line-numbered copy of the chunk, and the actual text is sliced out by
-code afterward. First consumer: telefonnotiz's weitere_informationen
-bullets (main.py).
+code afterward. Consumers include telefonnotiz's weitere_informationen
+bullets and multi-line universal texts (span_resolution.py).
 
 Numbering format matches ParseService.discoverSections' own convention
 client-side ("00042: <line text>", 5-digit zero-padded, 0-indexed) — same
@@ -15,6 +15,64 @@ from __future__ import annotations
 import re
 
 _BULLET_PREFIX_RE = re.compile(r'^[•▪◦\-*]\s+')
+MISSING_SPAN_SENTINEL = (-1, -1)
+
+
+def is_missing_span_sentinel(start_line: int, end_line: int) -> bool:
+    return (start_line, end_line) == MISSING_SPAN_SENTINEL
+
+
+def validate_inclusive_span(
+    raw_lines: list[str],
+    start_line: int,
+    end_line: int,
+) -> tuple[int, int]:
+    """Validate an inclusive, 0-based line span.
+
+    The (-1, -1) missing-content sentinel is intentionally not a valid span;
+    callers must detect it with is_missing_span_sentinel before extraction.
+    """
+    if is_missing_span_sentinel(start_line, end_line):
+        raise ValueError(
+            '(-1, -1) is a missing-span sentinel, not a valid line span'
+        )
+    if (
+        not isinstance(start_line, int)
+        or isinstance(start_line, bool)
+        or not isinstance(end_line, int)
+        or isinstance(end_line, bool)
+    ):
+        raise TypeError('start_line and end_line must be integers')
+    if not (0 <= start_line <= end_line < len(raw_lines)):
+        raise ValueError(
+            'invalid line span: expected 0 <= start_line <= end_line < '
+            f'len(raw_lines), got start_line={start_line}, '
+            f'end_line={end_line}, len(raw_lines)={len(raw_lines)}'
+        )
+    return start_line, end_line
+
+
+def validate_heading_lines(
+    heading_lines: list[int] | None,
+    start_line: int,
+    end_line: int,
+) -> set[int]:
+    if heading_lines is None:
+        return set()
+    if not isinstance(heading_lines, list):
+        raise TypeError('heading_lines must be a list of integers')
+
+    headings: set[int] = set()
+    for line in heading_lines:
+        if not isinstance(line, int) or isinstance(line, bool):
+            raise TypeError('heading_lines must be a list of integers')
+        if not start_line <= line <= end_line:
+            raise ValueError(
+                'heading_lines must be inside the extracted span: '
+                f'got {line}, span={start_line}..{end_line}'
+            )
+        headings.add(line)
+    return headings
 
 
 def number_markdown(markdown: str) -> str:
@@ -30,8 +88,8 @@ def extract_span(
     strip_bullet: bool = False,
     slash_index: int | None = None,
 ) -> str:
-    """Slices raw_lines[start_line:end_line+1] (inclusive, clamped to
-    bounds) and joins them into one clean string:
+    """Slices raw_lines[start_line:end_line+1] (inclusive, 0-based) and
+    joins them into one clean string:
       - a line ending in '-' is a hard-wrapped word split across the
         PDF's print line break — joined directly to the next line, no
         space, hyphen dropped (matches prompts.py's own de-hyphenation
@@ -56,11 +114,7 @@ def extract_span(
     (splitlines() page-break artifacts, blank-line double-spacing, etc.)
     on this exact document; kept consistent rather than re-derived.
     """
-    n = len(raw_lines)
-    start = max(0, min(start_line, n - 1)) if n else 0
-    end = max(0, min(end_line, n - 1)) if n else 0
-    if end < start:
-        start, end = end, start
+    start, end = validate_inclusive_span(raw_lines, start_line, end_line)
 
     pieces: list[str] = []
     for i in range(start, end + 1):
@@ -80,3 +134,56 @@ def extract_span(
         if 0 <= slash_index < len(parts) and parts[slash_index]:
             return parts[slash_index]
     return full
+
+
+def extract_block(
+    raw_lines: list[str],
+    start_line: int,
+    end_line: int,
+    *,
+    heading_lines: list[int] | None = None,
+) -> str:
+    """Multi-line variant of extract_span for texts[].content (lesen_teil2 /
+    hoeren_teil4 — see SPAN_TEXT_SECTION_TYPES in response_schemas.py).
+
+    Unlike extract_span's single-string join, line breaks are PRESERVED:
+    the client renders '\\n' as a hard break and '\\n\\n' as a paragraph gap
+    (buildContentSpan in universal_exercise_screen.dart), and the Hören
+    audio path re-segments the transcript by speaker turns from the same
+    line structure (TtsService.parseLines). Flattening to one line the way
+    extract_span does would destroy both.
+
+    Rules:
+      - lines are rstripped; runs of 2+ blank lines collapse to ONE blank
+        line (a paragraph gap), leading/trailing blank lines are dropped.
+      - a line ending in '-' is a hard-wrapped word split across the PDF's
+        print line break — joined directly to the next line, no separator
+        (same de-hyphenation rule as extract_span / prompts.py).
+      - heading_lines: ABSOLUTE line numbers (same numbering the spans use)
+        whose text is a standalone sub-heading — those lines are wrapped in
+        '**...**', mechanically reproducing the HEADINGS annotation the
+        model used to add while retyping (the client renders it bold; the
+        source itself never contains '**').
+    """
+    start, end = validate_inclusive_span(raw_lines, start_line, end_line)
+    headings = validate_heading_lines(heading_lines, start, end)
+
+    out: list[str] = []
+    pending_hyphen = False
+    for i in range(start, end + 1):
+        line = raw_lines[i].rstrip()
+        if pending_hyphen:
+            out[-1] = out[-1][:-1] + line.lstrip()
+            pending_hyphen = out[-1].endswith('-') and bool(line)
+            continue
+        if not line:
+            if out and out[-1] != '':
+                out.append('')
+            continue
+        if i in headings:
+            line = f'**{line.strip()}**'
+        out.append(line)
+        pending_hyphen = line.endswith('-') and i not in headings
+    while out and out[-1] == '':
+        out.pop()
+    return '\n'.join(out)

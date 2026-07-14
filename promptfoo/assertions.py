@@ -21,7 +21,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from response_schemas import _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
+from response_schemas import SPAN_TEXT_SECTION_TYPES, _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
 import line_extraction  # noqa: E402
 
 
@@ -202,6 +202,147 @@ def texts_not_empty(output, context):
     if empty:
         return {'pass': False, 'score': 0, 'reason': f'objects with empty texts: {empty}'}
     return {'pass': True, 'score': 1, 'reason': 'all objects have non-empty texts'}
+
+
+def span_texts_resolve_cleanly(output, context):
+    """Line-span text sections must return pointers that resolve through
+    the real production helper, not retyped text. This catches the two
+    practical bad shapes: spans that accidentally swallow the following
+    question/options block, and hoeren_teil4 collapsing five separate
+    phone messages into one shared transcript span."""
+    section_type = context['vars'].get('section_type')
+    if section_type not in SPAN_TEXT_SECTION_TYPES:
+        return {'pass': True, 'score': 1, 'reason': 'not a span-text section type'}
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+
+    raw_lines = context['vars']['markdown'].split('\n')
+    failures = []
+    resolved_count = 0
+
+    for obj in objects:
+        texts = obj.get('texts')
+        obj_label = (obj.get('variant_number'), obj.get('version'))
+        if not isinstance(texts, list) or not texts:
+            failures.append(f'object {obj_label} has no texts array')
+            continue
+
+        span_keys = []
+        resolved_values = []
+        for text_index, text in enumerate(texts):
+            path = f'object {obj_label} texts[{text_index}]'
+            if not isinstance(text, dict):
+                failures.append(f'{path} is not an object: {text!r}')
+                continue
+            try:
+                start = text['start_line']
+                end = text['end_line']
+            except KeyError:
+                failures.append(f'{path} has invalid start_line/end_line: {text!r}')
+                continue
+
+            if not _is_plain_int(start) or not _is_plain_int(end):
+                failures.append(f'{path} has non-integer start_line/end_line: {text!r}')
+                continue
+
+            heading_lines = _validate_heading_lines(
+                text.get('heading_lines'), path, failures, start, end, len(raw_lines))
+            if heading_lines is None:
+                continue
+
+            if start == -1 and end == -1:
+                resolved = '(nicht angegeben)'
+            elif start < 0 or end < 0:
+                failures.append(f'{path} has a negative non-sentinel span: {text!r}')
+                continue
+            elif end < start:
+                failures.append(f'{path} has an inverted span: {text!r}')
+                continue
+            elif start >= len(raw_lines) or end >= len(raw_lines):
+                failures.append(
+                    f'{path} span is out of range for {len(raw_lines)} source line(s): {text!r}')
+                continue
+            else:
+                resolved = line_extraction.extract_block(
+                    raw_lines, start, end, heading_lines=heading_lines)
+                if not resolved:
+                    failures.append(f'{path} resolves to empty content: {text!r}')
+                bad_line = _first_question_or_option_line(resolved)
+                if bad_line is not None:
+                    failures.append(f'{path} includes question/option-looking line: {bad_line!r}')
+                if _source_span_has_multiple_content_lines(raw_lines, start, end) and '\n' not in resolved:
+                    failures.append(f'{path} source span is multi-line but resolved text has no newline')
+                resolved_count += 1
+
+            span_keys.append((start, end, tuple(heading_lines)))
+            resolved_values.append(resolved)
+
+        if section_type == 'hoeren_teil4':
+            if len(texts) != 5:
+                failures.append(f'object {obj_label} has {len(texts)} texts, expected 5')
+            if len(set(span_keys)) != len(span_keys):
+                failures.append(f'object {obj_label} reuses at least one text span: {span_keys}')
+            if len(set(resolved_values)) != len(resolved_values):
+                failures.append(f'object {obj_label} has duplicate resolved text entries')
+
+    if failures:
+        return {'pass': False, 'score': 0, 'reason': '; '.join(failures[:8])}
+    return {'pass': True, 'score': 1,
+            'reason': f'{resolved_count} span-backed text(s) resolved cleanly'}
+
+
+def _is_plain_int(value):
+    return type(value) is int
+
+
+def _validate_heading_lines(value, path, failures, start, end, raw_line_count):
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        failures.append(f'{path} heading_lines is not a list/null: {value!r}')
+        return None
+    headings = []
+    for item in value:
+        if not _is_plain_int(item):
+            failures.append(f'{path} heading_lines contains non-integer value: {item!r}')
+            continue
+        if item < 0 or item >= raw_line_count or item < start or item > end:
+            failures.append(
+                f'{path} heading_lines entry is outside the text span/source lines: {item!r}')
+            continue
+        headings.append(item)
+    if len(headings) != len(value):
+        return None
+    return headings
+
+
+def _first_question_or_option_line(resolved):
+    for line in resolved.split('\n'):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _looks_like_question_or_option(stripped):
+            return stripped
+    return None
+
+
+def _looks_like_question_or_option(line):
+    return (
+        (len(line) > 3 and line[0].isdigit() and '. ' in line[:5])
+        or line.startswith(('a) ', 'b) ', 'c) ', 'd) ', 'e) ', 'f) '))
+    )
+
+
+def _source_span_has_multiple_content_lines(raw_lines, start_line, end_line):
+    if not raw_lines or start_line < 0 or end_line < 0:
+        return False
+    start = max(0, min(start_line, len(raw_lines) - 1))
+    end = max(0, min(end_line, len(raw_lines) - 1))
+    if end < start:
+        start, end = end, start
+    return sum(1 for line in raw_lines[start:end + 1] if line.strip()) > 1
 
 
 def single_question_correction_not_split(output, context):
