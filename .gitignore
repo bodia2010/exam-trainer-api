@@ -1,5 +1,8 @@
 .vercel
 __pycache__/
+.env
+.env.*
+promptfoo/.env
 
 # Fixtures are extracted from copyrighted exam-prep PDFs — regenerate
 # locally with promptfoo/make_fixtures.py, never commit them.

@@ -347,3 +347,41 @@ def telefonnotiz_shared_answer_block_splits_correctly(output, context):
     return {'pass': True, 'score': 1,
             'reason': f'shared answer block correctly split per edition: '
                       f'{label_a}={texts_a}/{name_a!r}, {label_b}={texts_b}/{name_b!r}'}
+
+
+def telefonnotiz_no_bullets_sentinel(output, context):
+    """Parse regression check for the [{"start_line": -1, "end_line": -1}]
+    sentinel prompts.py defines for "this edition genuinely prints no
+    Weitere Informationen: bullets at all" — must not be confused with
+    the ordinary case (real bullets present) or degrade into an empty
+    list / omitted field, which main.py's _resolve_telefonnotiz_spans
+    only recognizes as the (nicht angegeben) case via this EXACT
+    sentinel position. The fixture this runs against
+    (regression_fixtures/telefonnotiz_no_bullets_sentinel.txt) has a
+    single edition whose answer key goes straight from "Name:"/
+    "Telefonnummer:" to "Zu erledigen:" with no "Weitere Informationen:"
+    label printed at all — a real, if less common, shape this source
+    uses."""
+    if context['vars'].get('section_type') != 'telefonnotiz':
+        return {'pass': True, 'score': 1, 'reason': 'not applicable to this section type'}
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
+
+    variant = next((o for o in objects if o.get('variant_number') == 27), None)
+    if variant is None:
+        return {'pass': False, 'score': 0,
+                'reason': f'no variant_number == 27 object found: {objects}'}
+    versions = variant.get('versions') or []
+    if len(versions) != 1:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected exactly 1 version, got {len(versions)}: {versions}'}
+
+    answer = versions[0].get('answer') or {}
+    spans = answer.get('weitere_informationen')
+    if spans != [{'start_line': -1, 'end_line': -1}]:
+        return {'pass': False, 'score': 0,
+                'reason': f'expected the sentinel [{{"start_line": -1, "end_line": -1}}] for a '
+                          f'genuinely bullet-less edition, got: {spans!r}'}
+    return {'pass': True, 'score': 1, 'reason': 'no-bullets sentinel correctly reported'}

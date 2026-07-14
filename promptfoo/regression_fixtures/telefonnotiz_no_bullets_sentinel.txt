@@ -1,0 +1,10 @@
+Telefonnotiz (вариант №27), Thema: Firmenwagen
+
+<<<ITEM>>>
+
+Herr Albrecht ruft von der Firma Steiner Logistik an. Er meldet, dass sein Dienstwagen seit gestern nicht mehr anspringt und er deshalb heute nicht zu einem wichtigen Kundentermin fahren kann. Er bittet darum, dass sich jemand aus der Werkstatt so schnell wie möglich bei ihm meldet, damit das Auto abgeholt und repariert werden kann.
+
+Anfrage
+Name: Albrecht
+Telefonnummer: 089 445566
+Zu erledigen: Werkstatt informieren, Rückruf heute noch

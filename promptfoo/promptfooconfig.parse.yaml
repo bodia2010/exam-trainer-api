@@ -83,3 +83,11 @@ tests:
     assert:
       - type: python
         value: file://assertions.py:telefonnotiz_shared_answer_block_splits_correctly
+  - description: "telefonnotiz — edition with no printed Weitere Informationen bullets must report the -1,-1 sentinel"
+    vars:
+      section_type: telefonnotiz
+      markdown: file://regression_fixtures/telefonnotiz_no_bullets_sentinel.txt
+      min_items: 1
+    assert:
+      - type: python
+        value: file://assertions.py:telefonnotiz_no_bullets_sentinel
