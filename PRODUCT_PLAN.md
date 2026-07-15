@@ -13,15 +13,17 @@
 - Production API: `https://exam-trainer-api.vercel.app`. Клиент по умолчанию
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
-- Текущие версии кэша клиента: discovery `v30`, parse `v36`; APK
-  `1.0.0+10`. Последняя проверенная release-сборка лежит в
-  `/home/igor/Downloads/exam-trainer-v41-release.apk`. Подписанный AAB для
-  Play Console лежит в
-  `/home/igor/Downloads/exam-trainer-v41-release.aab` (versionCode 10,
+- Текущие версии кэша клиента: discovery `v30`, parse `v36`; исходный baseline
+  `1.0.0+10`. APK/AAB
+  `/home/igor/Downloads/exam-trainer-v41-release.*` являются архивными
+  pre-P0-артефактами и **не должны загружаться в Play Console**. Они были
+  собраны до исправлений CR-01—CR-06 (versionCode 10,
   targetSdk 36, SHA-256
   `b668a785bf2badce20c96a5df74157e35d37a437ba7414226fb4614f6e7fc1b8`);
-  107 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
-  подпись APK проверена. Финальные APK/AAB содержат выбранный тёплый редизайн,
+  их подпись проверена, но функционально они устарели. Перед следующей
+  публикацией нужно увеличить versionCode выше 10, собрать новый production
+  AAB из актуального исходного кода и повторить package/API/signature/SHA-256
+  gates. Архивные APK/AAB содержат выбранный тёплый редизайн,
   нативный светлый splash, startup-overlay до первого Flutter-кадра и единый
   Flutter-preloader на время Firebase, initial device gate и загрузки Home;
   единый Flutter overlay остаётся поверх MaterialApp/router/Home до кадра
@@ -44,8 +46,29 @@
 - Перед production-деплоем Vercel всегда отдельно подтвердить действие с
   пользователем. Не выводить и не сохранять Firebase-токены, Gemini-ключи,
   OAuth-коды или signing passwords.
-- Текущий локальный baseline: backend — 67 unit tests; Flutter — 107 tests.
-  `flutter analyze` проходит без замечаний.
+- Android production использует flavor по умолчанию `production` и прежний
+  package `com.linguaproapps.exam_trainer`. Device integration smoke собирается
+  только как изолированный flavor/package
+  `com.linguaproapps.exam_trainer.integration`, работает на локальных fake
+  зависимостях и не требует отдельного Firebase-конфига. На телефоне, где
+  установлено production-приложение, запускать только
+  `/home/igor/project/exam_trainer/tool/run_android_integration.sh <device-id>`.
+  Скрипт передаёт Flutter `--no-uninstall`, после теста удаляет строго
+  integration package и проверяет сохранность production package. Прямой
+  `flutter test -d <device> integration_test/...` запрещён: стандартный
+  teardown Flutter может удалить base production package и его локальные
+  данные даже при flavored APK.
+- Текущий локальный baseline: backend — 67 unit tests; Flutter — 132 теста,
+  включая host/device smoke основного PDF → курс → упражнение flow.
+  `flutter analyze` проходит без замечаний; production flavor release APK
+  создаётся как
+  `build/app/outputs/flutter-apk/app-production-release.apk`.
+- Актуальная точка передачи следующему AI-агенту, включая состояние Git,
+  P1 CR-07—CR-12, acceptance criteria и безопасные команды:
+  `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
+- Проверенный P0 Flutter baseline сохранён локальным коммитом `276afdb`; commits
+  не отправлены во внешний remote. Архивный AAB versionCode 10 к этому baseline
+  не относится и не пригоден для публикации.
 
 ## Детальное описание программы
 
