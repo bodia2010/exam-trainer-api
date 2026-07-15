@@ -14,18 +14,19 @@
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
 - Текущие версии кэша клиента: discovery `v30`, parse `v36`; APK
-  `1.0.0+7`. Последняя проверенная release-сборка лежит в
-  `/home/igor/Downloads/exam-trainer-v38-release.apk`. Подписанный AAB для
+  `1.0.0+8`. Последняя проверенная release-сборка лежит в
+  `/home/igor/Downloads/exam-trainer-v39-release.apk`. Подписанный AAB для
   Play Console лежит в
-  `/home/igor/Downloads/exam-trainer-v38-release.aab` (versionCode 7,
+  `/home/igor/Downloads/exam-trainer-v39-release.aab` (versionCode 8,
   targetSdk 36, SHA-256
-  `708d4fe628c658e91504b4ed48de54b458d9fcc3072f2c596814ebca8dc4a8d3`);
+  `e0690e76071c14457cf96bd442eb5e5d073efaef2f46735b3bca9b2fd2c80385`);
   105 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
   подпись APK проверена. Финальные APK/AAB содержат выбранный тёплый редизайн,
-  нативный светлый splash и Flutter-preloader, иконку Exam Trainer и только
+  нативный светлый splash, нативный startup-overlay до первого Flutter-кадра
+  и Flutter-preloader минимум на 1,2 секунды, иконку Exam Trainer и только
   production API URL; emulator URL отсутствует.
   APK SHA-256:
-  `1a52066556c51dfb539da2f9e2e478a19519de277e7d0309c05bc03a1bcad6d7`.
+  `6e5def9ceddf4faa451d3f215cd8cbed591119674bf25fbb70af21811b74e360`.
 - Free tier не запускает discovery для нового PDF. Уже обработанный документ
   читается из общего doc-кэша и на клиенте безопасно сокращается до первого
   варианта каждого раздела и первой редакции telefonnotiz.
