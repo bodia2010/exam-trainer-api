@@ -16,10 +16,13 @@ providers:
     label: production-config
 
 tests:
+  # Use markdown_path so fixture_loader.py preserves the exact converted PDF
+  # text. Promptfoo's text file:// variable loader applies trim(), deleting a
+  # leading form-feed before our prompt function can see it.
   - description: "Full document — must find 'other' markers and a realistic item count"
     vars:
       section_type: discover
-      markdown: file://fixtures/discover_input.txt
+      markdown_path: fixtures/discover_input.txt
       # Recalibrated 2026-07-09 (was 150): today's fix taught discovery
       # to stop counting a single-question answer correction as its own
       # edition (see the regression test below) — that was previously
@@ -52,7 +55,7 @@ tests:
   - description: "Single-question answer corrections must not split a variant into extra items"
     vars:
       section_type: discover
-      markdown: file://regression_fixtures/discover_single_question_correction.txt
+      markdown_path: regression_fixtures/discover_single_question_correction.txt
     assert:
       - type: python
         value: file://assertions.py:single_question_correction_not_split
@@ -68,7 +71,7 @@ tests:
   - description: "Split-slash variant numbering (N/M) must resolve to variant N, not a concatenated number"
     vars:
       section_type: discover
-      markdown: file://regression_fixtures/discover_split_slash_variant_number.txt
+      markdown_path: regression_fixtures/discover_split_slash_variant_number.txt
     assert:
       - type: python
         value: file://assertions.py:split_slash_variant_number_not_concatenated

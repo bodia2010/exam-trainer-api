@@ -7,14 +7,16 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(__file__))
 from prompts import PROMPTS  # noqa: E402
 from response_schemas import SPAN_TEXT_SECTION_TYPES  # noqa: E402
 import line_extraction  # noqa: E402
+from fixture_loader import load_markdown  # noqa: E402
 
 
 def get_prompt(context: dict) -> str:
     section_type = context['vars']['section_type']
-    markdown = context['vars']['markdown']
+    markdown = load_markdown(context)
     # main.py numbers the markdown before substitution for span-backed
     # sections (telefonnotiz's weitere_informationen and line-span
     # texts for lesen_teil2 / hoeren_teil4). Their prompts ask for

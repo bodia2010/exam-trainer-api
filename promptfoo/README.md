@@ -37,6 +37,13 @@ discovery once, then saves the two files evals read from into
 `fixtures/` — which is gitignored (the exam PDF content shouldn't sit in
 a public repo).
 
+The YAML configs intentionally pass fixture names as `markdown_path`, not
+`markdown: file://...`. Promptfoo applies JavaScript `trim()` to text loaded
+through a `file://` variable, which removes a leading PDF form-feed (`\x0c`)
+and makes the eval input differ from production. `fixture_loader.py` reads the
+UTF-8 bytes without trimming; prompt functions and source-based assertions use
+that same raw value.
+
 ## Running — standard pre-deploy gate
 
 Before deploying any prompt/schema change (per the current rules in

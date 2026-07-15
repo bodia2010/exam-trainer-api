@@ -21,8 +21,10 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(__file__))
 from response_schemas import SPAN_TEXT_SECTION_TYPES, _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
 import line_extraction  # noqa: E402
+from fixture_loader import load_markdown  # noqa: E402
 
 
 def _parse(output):
@@ -238,7 +240,7 @@ def span_texts_resolve_cleanly(output, context):
     except Exception as e:
         return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
 
-    raw_lines = context['vars']['markdown'].split('\n')
+    raw_lines = load_markdown(context).split('\n')
     failures = []
     resolved_count = 0
 
@@ -452,7 +454,7 @@ def telefonnotiz_shared_answer_block_splits_correctly(output, context):
     except Exception as e:
         return {'pass': False, 'score': 0, 'reason': f'invalid JSON: {e}'}
 
-    raw_lines = context['vars']['markdown'].split('\n')
+    raw_lines = load_markdown(context).split('\n')
     variant = next((o for o in objects if o.get('variant_number') == 12), None)
     if variant is None:
         return {'pass': False, 'score': 0,

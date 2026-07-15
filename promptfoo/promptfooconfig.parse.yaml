@@ -37,34 +37,37 @@ defaultTest:
       value: file://assertions.py:span_texts_resolve_cleanly
 
 tests:
+  # Use markdown_path, never Promptfoo's text file:// variable loader:
+  # Promptfoo trims text files and removes leading PDF form-feed characters.
+  # prompt_parse.py reads these paths byte-for-byte via fixture_loader.py.
   - description: "lesen_teil1 — heaviest multi-edition variant"
-    vars: { section_type: lesen_teil1, markdown: file://fixtures/lesen_teil1.txt, min_items: 2 }
+    vars: { section_type: lesen_teil1, markdown_path: fixtures/lesen_teil1.txt, min_items: 2 }
   - description: "lesen_teil2 — heaviest multi-edition variant"
-    vars: { section_type: lesen_teil2, markdown: file://fixtures/lesen_teil2.txt, min_items: 2 }
+    vars: { section_type: lesen_teil2, markdown_path: fixtures/lesen_teil2.txt, min_items: 2 }
   - description: "lesen_teil3 — heaviest multi-edition variant"
-    vars: { section_type: lesen_teil3, markdown: file://fixtures/lesen_teil3.txt, min_items: 2 }
+    vars: { section_type: lesen_teil3, markdown_path: fixtures/lesen_teil3.txt, min_items: 2 }
   - description: "lesen_teil4 — heaviest multi-edition variant"
-    vars: { section_type: lesen_teil4, markdown: file://fixtures/lesen_teil4.txt, min_items: 2 }
+    vars: { section_type: lesen_teil4, markdown_path: fixtures/lesen_teil4.txt, min_items: 2 }
   - description: "beschwerde — heaviest multi-edition variant"
-    vars: { section_type: beschwerde, markdown: file://fixtures/beschwerde.txt, min_items: 2 }
+    vars: { section_type: beschwerde, markdown_path: fixtures/beschwerde.txt, min_items: 2 }
   - description: "sprachbausteine_teil1 — heaviest multi-edition variant"
-    vars: { section_type: sprachbausteine_teil1, markdown: file://fixtures/sprachbausteine_teil1.txt, min_items: 2 }
+    vars: { section_type: sprachbausteine_teil1, markdown_path: fixtures/sprachbausteine_teil1.txt, min_items: 2 }
   - description: "sprachbausteine_teil2 — heaviest multi-edition variant"
-    vars: { section_type: sprachbausteine_teil2, markdown: file://fixtures/sprachbausteine_teil2.txt, min_items: 2 }
+    vars: { section_type: sprachbausteine_teil2, markdown_path: fixtures/sprachbausteine_teil2.txt, min_items: 2 }
   - description: "telefonnotiz — heaviest multi-edition variant (nested versions, not top-level objects)"
-    vars: { section_type: telefonnotiz, markdown: file://fixtures/telefonnotiz.txt, min_items: 1 }
+    vars: { section_type: telefonnotiz, markdown_path: fixtures/telefonnotiz.txt, min_items: 1 }
   - description: "hoeren_teil1 — heaviest multi-edition variant (our known-tricky case)"
-    vars: { section_type: hoeren_teil1, markdown: file://fixtures/hoeren_teil1.txt, min_items: 2 }
+    vars: { section_type: hoeren_teil1, markdown_path: fixtures/hoeren_teil1.txt, min_items: 2 }
   - description: "hoeren_teil2 — heaviest multi-edition variant"
-    vars: { section_type: hoeren_teil2, markdown: file://fixtures/hoeren_teil2.txt, min_items: 2 }
+    vars: { section_type: hoeren_teil2, markdown_path: fixtures/hoeren_teil2.txt, min_items: 2 }
   - description: "hoeren_teil3 — heaviest multi-edition variant"
-    vars: { section_type: hoeren_teil3, markdown: file://fixtures/hoeren_teil3.txt, min_items: 2 }
+    vars: { section_type: hoeren_teil3, markdown_path: fixtures/hoeren_teil3.txt, min_items: 2 }
   # This fixture contains THREE discovery chunks but only ONE real edition:
   # chunks 2/3 begin with later corrections to questions 36/38, then continue
   # the same five-message variant. The parse prompt must merge them into one
   # object; treating each <<<ITEM>>> as an edition was a false-positive gate.
   - description: "hoeren_teil4 — three correction chunks must merge into one variant"
-    vars: { section_type: hoeren_teil4, markdown: file://fixtures/hoeren_teil4.txt, min_items: 1, expected_items: 1 }
+    vars: { section_type: hoeren_teil4, markdown_path: fixtures/hoeren_teil4.txt, min_items: 1, expected_items: 1 }
 
   # Regression tests below use synthetic fixtures (regression_fixtures/,
   # committed to git — unlike fixtures/, they're hand-written, not
@@ -76,28 +79,28 @@ tests:
   - description: "hoeren_teil4 — single-question answer correction must not split the variant or drop content"
     vars:
       section_type: hoeren_teil4
-      markdown: file://regression_fixtures/hoeren_teil4_single_question_correction.txt
+      markdown_path: regression_fixtures/hoeren_teil4_single_question_correction.txt
       min_items: 1
       expected_items: 1
   - description: "hoeren_teil4 — genuinely missing phone message must use the -1,-1 text sentinel"
     vars:
       section_type: hoeren_teil4
-      markdown: file://regression_fixtures/hoeren_teil4_missing_text_sentinel.txt
+      markdown_path: regression_fixtures/hoeren_teil4_missing_text_sentinel.txt
       min_items: 1
   - description: "lesen_teil2 — synthetic span boundaries must stay inside source text"
     vars:
       section_type: lesen_teil2
-      markdown: file://regression_fixtures/lesen_teil2_span_boundaries.txt
+      markdown_path: regression_fixtures/lesen_teil2_span_boundaries.txt
       min_items: 1
   - description: "beschwerde — single-question answer correction must not split the variant or drop content"
     vars:
       section_type: beschwerde
-      markdown: file://regression_fixtures/beschwerde_single_question_correction.txt
+      markdown_path: regression_fixtures/beschwerde_single_question_correction.txt
       min_items: 1
   - description: "telefonnotiz — shared answer-key block across 2 editions must split via slash_index, not duplicate or leak raw '/'"
     vars:
       section_type: telefonnotiz
-      markdown: file://regression_fixtures/telefonnotiz_shared_answer_block_slash_index.txt
+      markdown_path: regression_fixtures/telefonnotiz_shared_answer_block_slash_index.txt
       min_items: 1
     assert:
       - type: python
@@ -105,7 +108,7 @@ tests:
   - description: "telefonnotiz — edition with no printed Weitere Informationen bullets must report the -1,-1 sentinel"
     vars:
       section_type: telefonnotiz
-      markdown: file://regression_fixtures/telefonnotiz_no_bullets_sentinel.txt
+      markdown_path: regression_fixtures/telefonnotiz_no_bullets_sentinel.txt
       min_items: 1
     assert:
       - type: python

@@ -10,7 +10,7 @@
 #
 # What it does:
 #   1. promptfooconfig.parse.yaml — run ONCE. Any failure (assertion or
-#      provider error, on ANY of the 14 tests) is fatal. Parse is not
+#      provider error, on ANY of the 18 tests) is fatal. Parse is not
 #      documented anywhere as flaky, so zero tolerance.
 #   2. promptfooconfig.discover.yaml — run UP TO 3 times, because the
 #      config's own comments document that its regression test
@@ -112,8 +112,8 @@ flaky_fail = False
 for r in results:
     success = bool(r.get("success"))
     desc = (r.get("testCase") or {}).get("description") or "(no description)"
-    markdown_var = str((r.get("vars") or {}).get("markdown", ""))
-    is_flaky_test = FLAKY_FIXTURE in markdown_var
+    markdown_path = str((r.get("vars") or {}).get("markdown_path", ""))
+    is_flaky_test = FLAKY_FIXTURE in markdown_path
     if success:
         print(f"  [pass] {desc}", file=sys.stderr)
         continue
