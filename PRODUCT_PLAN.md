@@ -14,20 +14,23 @@
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
 - Текущие версии кэша клиента: discovery `v30`, parse `v36`; APK
-  `1.0.0+9`. Последняя проверенная release-сборка лежит в
-  `/home/igor/Downloads/exam-trainer-v40-release.apk`. Подписанный AAB для
+  `1.0.0+10`. Последняя проверенная release-сборка лежит в
+  `/home/igor/Downloads/exam-trainer-v41-release.apk`. Подписанный AAB для
   Play Console лежит в
-  `/home/igor/Downloads/exam-trainer-v40-release.aab` (versionCode 9,
+  `/home/igor/Downloads/exam-trainer-v41-release.aab` (versionCode 10,
   targetSdk 36, SHA-256
-  `b34076167f7f191085741a56e4193176dc3ca6fba5dbd2564dc1d86d44b84d0c`);
-  106 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
+  `b668a785bf2badce20c96a5df74157e35d37a437ba7414226fb4614f6e7fc1b8`);
+  107 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
   подпись APK проверена. Финальные APK/AAB содержат выбранный тёплый редизайн,
   нативный светлый splash, startup-overlay до первого Flutter-кадра и единый
   Flutter-preloader на время Firebase, initial device gate и загрузки Home;
-  промежуточный чёрный кадр и отдельный круговой spinner удалены. В сборке
-  только production API URL; emulator URL отсутствует.
+  единый Flutter overlay остаётся поверх MaterialApp/router/Home до кадра
+  готового экрана, а нативный overlay плавно снимается за 180 мс поверх уже
+  нарисованного Flutter-кадра. Промежуточные белый/чёрный кадры и отдельный
+  круговой spinner удалены. В сборке только production API URL; emulator URL
+  отсутствует.
   APK SHA-256:
-  `35a8c6ac1bd859863f97a133d824605be5affc7ef89a3060fd4bce93d0c254b6`.
+  `48c8c29bd7c40ebcb74d259097df08b33627d83d6547e6868bc9101b892ed5cd`.
 - Free tier не запускает discovery для нового PDF. Уже обработанный документ
   читается из общего doc-кэша и на клиенте безопасно сокращается до первого
   варианта каждого раздела и первой редакции telefonnotiz.
@@ -41,7 +44,7 @@
 - Перед production-деплоем Vercel всегда отдельно подтвердить действие с
   пользователем. Не выводить и не сохранять Firebase-токены, Gemini-ключи,
   OAuth-коды или signing passwords.
-- Текущий локальный baseline: backend — 67 unit tests; Flutter — 106 tests.
+- Текущий локальный baseline: backend — 67 unit tests; Flutter — 107 tests.
   `flutter analyze` проходит без замечаний.
 
 ## Детальное описание программы
