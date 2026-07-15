@@ -58,27 +58,56 @@
   `flutter test -d <device> integration_test/...` запрещён: стандартный
   teardown Flutter может удалить base production package и его локальные
   данные даже при flavored APK.
-- Текущий проверенный baseline: backend — 72 unit tests; Flutter — 191 тест,
-  включая host/device smoke основного PDF → курс → упражнение flow.
-  `flutter analyze` проходит без замечаний; `flutter test --coverage` —
-  1972/4503 строк (43,79%); production
-  flavor release APK пересобрана из текущего кода как
-  `build/app/outputs/flutter-apk/app-production-release.apk`
-  (`com.linguaproapps.exam_trainer`, versionCode 10, сертификат
-  `CN=Exam Trainer`).
+- Текущий проверенный baseline (после независимой перепроверки P2,
+  2026-07-15): backend — 72 unit tests (не изменялся); Flutter — 248
+  тестов (было 233 до перепроверки, 191 до P2), включая host/device smoke
+  основного PDF → курс → упражнение flow.
+  `flutter analyze` проходит без замечаний; `dart format
+  --set-exit-if-changed .` чист; `flutter test --coverage` —
+  2334/4703 строк (49,63%); production
+  flavor release APK не пересобиралась в сессии перепроверки (только
+  клиентский код + тесты, без изменения release-конфигурации).
 - P1 (CR-07 cloud sync outbox, CR-09/CR-10 device gate policy, CR-11 typed
-  API errors, CR-12 Android privacy) закрыт 2026-07-15; CR-08 defensive
-  parsing закрыт частично и требует typed DTO/migrations — см.
-  `CODE_REVIEW_2026-07-15.md` «Статус реализации». Backend force-device и
-  course-delete сохраняют `{ok:bool}`, но теперь подтверждают только реальный
-  Firestore результат (`503 {ok:false}` при failure). Device integration
-  smoke прошёл 1/1 на физическом
-  Samsung SM-S938B через `tool/run_android_integration.sh`; production
-  package остался установлен, integration package удалён. Это подтверждает
-  device smoke; CR-08 остаётся частичным до typed DTO/migrations.
+  API errors, CR-12 Android privacy) закрыт 2026-07-15. Backend force-device
+  и course-delete сохраняют `{ok:bool}`, но теперь подтверждают только
+  реальный Firestore результат (`503 {ok:false}` при failure). Device
+  integration smoke прошёл 1/1 на физическом Samsung SM-S938B через
+  `tool/run_android_integration.sh`; production package остался установлен,
+  integration package удалён.
+- P2: CR-08 (typed DTO для всех 12 типов упражнений, backward-compatible
+  schema v1) и CR-14 (bounded/atomic TTS cache) закрыты 2026-07-15, но
+  независимая перепроверка в тот же день вернула **REQUEST CHANGES** по
+  трём пунктам: конкурентная запись TTS-кэша (`TtsService.ensureAudio` —
+  два параллельных запроса одной реплики могли гонять один и тот же
+  `<key>.mp3.tmp` и падать с `PathNotFoundException`), lifecycle
+  `DialogueAudioPlayer` (устаревшая async-цепочка после dispose/повторного
+  запуска могла тронуть UI/воспроизведение) и неполнота CR-14 (не
+  удалялся унаследованный `Documents/tts_cache` от версий до миграции).
+  Все три исправлены в следующей сессии тем же днём: `_pendingByKey`
+  сериализует конкурентные `ensureAudio`-операции по ключу (4 новых
+  теста), `_opToken` защищает `DialogueAudioPlayer` от устаревших
+  операций и paused-семантика исправлена (3 новых теста), one-time
+  best-effort legacy-cleanup добавлен (4 новых теста). Заодно CR-08
+  усилен: `ExerciseQuestion.number` (структурный identity-ключ,
+  используемый как ключ answer-карт во всех exercise screens) раньше
+  дефолтился в `0` при отсутствии — два вопроса без номера молча
+  схлопывались в один; теперь бросает `ExerciseSchemaException` и
+  проверяется на уникальность (4 новых/изменённых теста), legacy-fixture
+  расширена с 10 до всех 12 типов упражнений. CR-08 и CR-14 теперь честно
+  закрыты по полному списку требований, не только по первоначальной
+  формулировке. CR-13 (Course/Exercise loader) и CR-15
+  (localization/accessibility) не трогались в сессии перепроверки и
+  остаются частично продвинутыми — DropdownButton gap-labeling и реальный
+  TalkBack-прогон ещё не сделаны, хотя устройство было доступно в конце
+  сессии (задача не входила в её объём). CR-16: только patch/minor
+  Firebase bump выполнен; `go_router`/`google_fonts`/`device_info_plus`
+  major-апгрейды оценены и сознательно отложены (высокий блaст радиус на
+  device-gate и роутинг); `file_picker` заблокирован намеренно (`c53c20c`:
+  11.x ломает сборку с текущим toolchain, 10.3.11 retracted) — см.
+  `CODE_REVIEW_2026-07-15.md` «Независимая перепроверка P2 (CR-08/CR-14)».
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
-  P2 CR-13—CR-16, acceptance criteria и безопасные команды:
-  `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
+  оставшуюся часть CR-13/CR-15/CR-16, acceptance criteria и безопасные
+  команды: `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
 - Проверенный P0 Flutter baseline сохранён коммитом `276afdb`; дальнейшая
   реализация и независимая перепроверка описаны в Flutter handoff. Архивный AAB
   versionCode 10 к этому baseline не относится и не пригоден для публикации.
