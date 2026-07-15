@@ -45,8 +45,8 @@ from tools.curation_receipt import verify_receipt  # noqa: E402
 
 
 DEFAULT_DISCOVER_VERSION = 'v30'
-DEFAULT_SOURCE_PARSE_VERSION = 'v34'
-DEFAULT_TARGET_PARSE_VERSION = 'v35'
+DEFAULT_SOURCE_PARSE_VERSION = 'v35'
+DEFAULT_TARGET_PARSE_VERSION = 'v36'
 
 
 def convert_pdf_to_markdown(pdf_path: Path) -> str:

@@ -28,8 +28,8 @@ class CuratedCacheKeyTest(unittest.TestCase):
         expected = hashlib.sha256('doc|eins\nzwei'.encode()).hexdigest()
         self.assertEqual(expected, inject_curated.document_digest(markdown))
         self.assertEqual(
-            f'v30.v35|doc|{expected}',
-            inject_curated.document_key('v30', 'v35', expected),
+            f'v30.v36|doc|{expected}',
+            inject_curated.document_key('v30', 'v36', expected),
         )
 
     def test_full_course_json_serializes_only_sections(self):
