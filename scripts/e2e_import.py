@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""E2E import verification (AGENT_PLAN.md Phase 3.3).
+"""E2E import verification (see PRODUCT_PLAN.md verification rules).
 
 Drives convert -> discover -> parse against a REAL exam-trainer-api
 deployment, for BOTH tariffs (free and premium), mirroring exactly how the
@@ -567,7 +567,7 @@ def process_group(
         problems = validate_group(expanded, section_type)
 
         if tariff == "free":
-            # Acceptance bar from AGENT_PLAN.md 3.3: free tier must return
+            # Product acceptance bar: free tier must return
             # exactly 1 variant per section. The client itself doesn't
             # enforce this — it silently takes result.items.first and
             # discards the rest — so this script checks the property the

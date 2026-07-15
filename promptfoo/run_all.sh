@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run_all.sh — the one command for "is it safe to ship this prompt/schema
-# change" (AGENT_PLAN.md Phase 3.2). Runs both promptfoo configs and prints
+# change" (PRODUCT_PLAN.md). Runs both promptfoo configs and prints
 # a single PASS/FAIL verdict.
 #
 #   ./run_all.sh

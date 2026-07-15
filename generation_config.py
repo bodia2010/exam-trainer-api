@@ -21,7 +21,7 @@ DEFAULT_MODEL = 'gemini-3.1-flash-lite'
 # slices chunks at every discovered boundary, so each spurious entry
 # silently truncates a real exercise. gemini-3.5-flash on the identical
 # input produced exactly one entry per variant with correct boundaries,
-# stable across repeated runs (see DISCOVERY_BUG_ANALYSIS.md). Discovery
+# stable across repeated runs (see PRODUCT_PLAN.md). Discovery
 # is one call per unique document and its result is cached without TTL,
 # so the price delta is a one-time cents-level cost per new PDF.
 MODELS = {

@@ -39,9 +39,9 @@ a public repo).
 
 ## Running — standard pre-deploy gate
 
-Before deploying any prompt/schema change (per AGENT_PLAN.md's rule "after
-changing prompts/schemas: bump `_cacheVersion`, run promptfoo, rebuild the
-APK"), run:
+Before deploying any prompt/schema change (per the current rules in
+`../PRODUCT_PLAN.md`: bump the affected cache version, run promptfoo, migrate
+the curated cache, and rebuild the APK), run:
 
 ```bash
 ./run_all.sh

@@ -1,5 +1,6 @@
 .vercel
 __pycache__/
+.codegraph/
 .env
 .env.*
 promptfoo/.env
@@ -17,5 +18,4 @@ promptfoo/results_*.json
 # Same policy — these embed verbatim source snippets from the specific
 # document they were written against (see the 2026-07-12 commit that
 # introduced check_answer_keys.py/verify_content.py for the reasoning).
-DISCOVERY_BUG_ANALYSIS.md
 scripts/fix_course.py

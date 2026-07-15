@@ -1,6 +1,6 @@
 """Shared helpers for line-span extraction: instead of asking Gemini to
 retype a verbatim field (source of paraphrasing/truncation bugs — see
-DISCOVERY_BUG_ANALYSIS.md and yesterday's check_verbatim_content.py
+PRODUCT_PLAN.md and the check_verbatim_content.py audit
 findings), the prompt asks for a {start_line, end_line} pointer into a
 line-numbered copy of the chunk, and the actual text is sliced out by
 code afterward. Consumers include telefonnotiz's weitere_informationen
