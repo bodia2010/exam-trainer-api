@@ -14,19 +14,20 @@
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
 - Текущие версии кэша клиента: discovery `v30`, parse `v36`; APK
-  `1.0.0+8`. Последняя проверенная release-сборка лежит в
-  `/home/igor/Downloads/exam-trainer-v39-release.apk`. Подписанный AAB для
+  `1.0.0+9`. Последняя проверенная release-сборка лежит в
+  `/home/igor/Downloads/exam-trainer-v40-release.apk`. Подписанный AAB для
   Play Console лежит в
-  `/home/igor/Downloads/exam-trainer-v39-release.aab` (versionCode 8,
+  `/home/igor/Downloads/exam-trainer-v40-release.aab` (versionCode 9,
   targetSdk 36, SHA-256
-  `e0690e76071c14457cf96bd442eb5e5d073efaef2f46735b3bca9b2fd2c80385`);
-  105 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
+  `b34076167f7f191085741a56e4193176dc3ca6fba5dbd2564dc1d86d44b84d0c`);
+  106 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
   подпись APK проверена. Финальные APK/AAB содержат выбранный тёплый редизайн,
-  нативный светлый splash, нативный startup-overlay до первого Flutter-кадра
-  и Flutter-preloader минимум на 1,2 секунды, иконку Exam Trainer и только
-  production API URL; emulator URL отсутствует.
+  нативный светлый splash, startup-overlay до первого Flutter-кадра и единый
+  Flutter-preloader на время Firebase, initial device gate и загрузки Home;
+  промежуточный чёрный кадр и отдельный круговой spinner удалены. В сборке
+  только production API URL; emulator URL отсутствует.
   APK SHA-256:
-  `6e5def9ceddf4faa451d3f215cd8cbed591119674bf25fbb70af21811b74e360`.
+  `35a8c6ac1bd859863f97a133d824605be5affc7ef89a3060fd4bce93d0c254b6`.
 - Free tier не запускает discovery для нового PDF. Уже обработанный документ
   читается из общего doc-кэша и на клиенте безопасно сокращается до первого
   варианта каждого раздела и первой редакции telefonnotiz.
@@ -40,7 +41,7 @@
 - Перед production-деплоем Vercel всегда отдельно подтвердить действие с
   пользователем. Не выводить и не сохранять Firebase-токены, Gemini-ключи,
   OAuth-коды или signing passwords.
-- Текущий локальный baseline: backend — 67 unit tests; Flutter — 105 tests.
+- Текущий локальный baseline: backend — 67 unit tests; Flutter — 106 tests.
   `flutter analyze` проходит без замечаний.
 
 ## Детальное описание программы
