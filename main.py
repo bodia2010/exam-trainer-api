@@ -195,8 +195,8 @@ def device_force():
     if not device_id:
         return jsonify({'error': 'deviceId is required'}), 400
 
-    firestore_client.force_register_device(uid, device_id, device_name)
-    return jsonify({'ok': True})
+    ok = firestore_client.force_register_device(uid, device_id, device_name)
+    return jsonify({'ok': ok}), 200 if ok else 503
 
 
 @app.route('/api/courses', methods=['GET', 'POST', 'OPTIONS'])
@@ -232,8 +232,8 @@ def course_delete(course_id):
     uid = _authenticate()
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
-    firestore_client.delete_course(uid, course_id)
-    return jsonify({'ok': True})
+    ok = firestore_client.delete_course(uid, course_id)
+    return jsonify({'ok': ok}), 200 if ok else 503
 
 
 @app.route('/api/account', methods=['DELETE', 'OPTIONS'])

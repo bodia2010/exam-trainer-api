@@ -58,17 +58,30 @@
   `flutter test -d <device> integration_test/...` запрещён: стандартный
   teardown Flutter может удалить base production package и его локальные
   данные даже при flavored APK.
-- Текущий локальный baseline: backend — 67 unit tests; Flutter — 132 теста,
+- Текущий проверенный baseline: backend — 72 unit tests; Flutter — 191 тест,
   включая host/device smoke основного PDF → курс → упражнение flow.
-  `flutter analyze` проходит без замечаний; production flavor release APK
-  создаётся как
-  `build/app/outputs/flutter-apk/app-production-release.apk`.
+  `flutter analyze` проходит без замечаний; `flutter test --coverage` —
+  1972/4503 строк (43,79%); production
+  flavor release APK пересобрана из текущего кода как
+  `build/app/outputs/flutter-apk/app-production-release.apk`
+  (`com.linguaproapps.exam_trainer`, versionCode 10, сертификат
+  `CN=Exam Trainer`).
+- P1 (CR-07 cloud sync outbox, CR-09/CR-10 device gate policy, CR-11 typed
+  API errors, CR-12 Android privacy) закрыт 2026-07-15; CR-08 defensive
+  parsing закрыт частично и требует typed DTO/migrations — см.
+  `CODE_REVIEW_2026-07-15.md` «Статус реализации». Backend force-device и
+  course-delete сохраняют `{ok:bool}`, но теперь подтверждают только реальный
+  Firestore результат (`503 {ok:false}` при failure). Device integration
+  smoke прошёл 1/1 на физическом
+  Samsung SM-S938B через `tool/run_android_integration.sh`; production
+  package остался установлен, integration package удалён. Это подтверждает
+  device smoke; CR-08 остаётся частичным до typed DTO/migrations.
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
-  P1 CR-07—CR-12, acceptance criteria и безопасные команды:
+  P2 CR-13—CR-16, acceptance criteria и безопасные команды:
   `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
-- Проверенный P0 Flutter baseline сохранён локальным коммитом `276afdb`; commits
-  не отправлены во внешний remote. Архивный AAB versionCode 10 к этому baseline
-  не относится и не пригоден для публикации.
+- Проверенный P0 Flutter baseline сохранён коммитом `276afdb`; дальнейшая
+  реализация и независимая перепроверка описаны в Flutter handoff. Архивный AAB
+  versionCode 10 к этому baseline не относится и не пригоден для публикации.
 
 ## Детальное описание программы
 

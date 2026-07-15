@@ -127,23 +127,26 @@ def check_and_register_device(uid: str, device_id: str, device_name: str) -> boo
         return True
 
 
-def force_register_device(uid: str, device_id: str, device_name: str) -> None:
+def force_register_device(uid: str, device_id: str, device_name: str) -> bool:
     """Evicts every other device on the account and registers this one —
     the "use this device instead" action on the device-limit screen."""
     if not _credentials:
-        return
+        return False
     try:
         headers = {'Authorization': f'Bearer {_access_token()}'}
         listing = requests.get(
             _devices_url(uid), headers=headers, timeout=10)
-        if listing.status_code == 200:
-            for doc in listing.json().get('documents', []):
-                name = doc.get('name', '')  # full resource path
-                if name:
-                    requests.delete(
-                        f'https://firestore.googleapis.com/v1/{name}',
-                        headers=headers, timeout=10)
-        requests.patch(
+        if listing.status_code != 200:
+            return False
+        for doc in listing.json().get('documents', []):
+            name = doc.get('name', '')  # full resource path
+            if name:
+                deleted = requests.delete(
+                    f'https://firestore.googleapis.com/v1/{name}',
+                    headers=headers, timeout=10)
+                if deleted.status_code not in (200, 404):
+                    return False
+        registered = requests.patch(
             _devices_url(uid, device_id),
             headers=headers,
             json={'fields': {
@@ -154,8 +157,9 @@ def force_register_device(uid: str, device_id: str, device_name: str) -> None:
             }},
             timeout=10,
         )
+        return registered.status_code == 200
     except Exception:
-        pass
+        return False
 
 
 # Courses are stored as a single opaque JSON blob per document rather than
@@ -217,14 +221,16 @@ def list_courses(uid: str) -> list[str]:
         return []
 
 
-def delete_course(uid: str, course_id: str) -> None:
+def delete_course(uid: str, course_id: str) -> bool:
     if not _credentials:
-        return
+        return False
     try:
         headers = {'Authorization': f'Bearer {_access_token()}'}
-        requests.delete(_courses_url(uid, course_id), headers=headers, timeout=10)
+        response = requests.delete(
+            _courses_url(uid, course_id), headers=headers, timeout=10)
+        return response.status_code in (200, 404)
     except Exception:
-        pass
+        return False
 
 
 # --- Account deletion ---------------------------------------------------
