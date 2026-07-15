@@ -28,6 +28,8 @@ defaultTest:
     - type: python
       value: file://assertions.py:item_count_at_least
     - type: python
+      value: file://assertions.py:item_count_exactly_when_set
+    - type: python
       value: file://assertions.py:expected_question_count
     - type: python
       value: file://assertions.py:texts_not_empty
@@ -57,8 +59,12 @@ tests:
     vars: { section_type: hoeren_teil2, markdown: file://fixtures/hoeren_teil2.txt, min_items: 2 }
   - description: "hoeren_teil3 — heaviest multi-edition variant"
     vars: { section_type: hoeren_teil3, markdown: file://fixtures/hoeren_teil3.txt, min_items: 2 }
-  - description: "hoeren_teil4 — heaviest multi-edition variant"
-    vars: { section_type: hoeren_teil4, markdown: file://fixtures/hoeren_teil4.txt, min_items: 2 }
+  # This fixture contains THREE discovery chunks but only ONE real edition:
+  # chunks 2/3 begin with later corrections to questions 36/38, then continue
+  # the same five-message variant. The parse prompt must merge them into one
+  # object; treating each <<<ITEM>>> as an edition was a false-positive gate.
+  - description: "hoeren_teil4 — three correction chunks must merge into one variant"
+    vars: { section_type: hoeren_teil4, markdown: file://fixtures/hoeren_teil4.txt, min_items: 1, expected_items: 1 }
 
   # Regression tests below use synthetic fixtures (regression_fixtures/,
   # committed to git — unlike fixtures/, they're hand-written, not
@@ -72,6 +78,7 @@ tests:
       section_type: hoeren_teil4
       markdown: file://regression_fixtures/hoeren_teil4_single_question_correction.txt
       min_items: 1
+      expected_items: 1
   - description: "hoeren_teil4 — genuinely missing phone message must use the -1,-1 text sentinel"
     vars:
       section_type: hoeren_teil4

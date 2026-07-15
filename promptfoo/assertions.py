@@ -64,6 +64,26 @@ def item_count_at_least(output, context):
             'reason': f'{len(real)} real items found (floor: {minimum})'}
 
 
+def item_count_exactly_when_set(output, context):
+    """Some fixtures have a semantic exact count that cannot be inferred
+    from the number of ``<<<ITEM>>>`` chunks. Discovery may split one real
+    edition around single-question correction blocks, while parse must merge
+    those chunks back into exactly one object. Tests opt in with the
+    ``expected_items`` variable; every other test is a no-op."""
+    expected_raw = context['vars'].get('expected_items')
+    if expected_raw is None:
+        return {'pass': True, 'score': 1, 'reason': 'no exact item count configured'}
+    try:
+        items = _parse(output)
+        expected = int(expected_raw)
+    except Exception as e:
+        return {'pass': False, 'score': 0, 'reason': f'invalid exact-count input/output: {e}'}
+    real = [i for i in items if i.get('section_type') != 'other']
+    ok = len(real) == expected
+    return {'pass': ok, 'score': 1 if ok else 0,
+            'reason': f'{len(real)} real items found (exactly expected: {expected})'}
+
+
 def original_has_no_sentinel(output, context):
     """The original edition (version: null) must always be fully
     self-contained — if the sentinel leaks in there, expansion on the
