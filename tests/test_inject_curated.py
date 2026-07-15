@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 from tools import inject_curated
+from tools import curation_receipt
 
 
 class FakeRedis:
@@ -64,6 +65,84 @@ class CuratedCacheKeyTest(unittest.TestCase):
             '--source-key', 'v30.v32|doc|legacy-hash',
         ])
         self.assertEqual('v30.v32|doc|legacy-hash', args.source_key)
+
+    def test_course_apply_requires_matching_checklist_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / 'source.pdf'
+            pdf.write_bytes(b'pdf bytes')
+            course = root / 'course.json'
+            course.write_text(json.dumps({
+                'sections': {'lesen_teil2': [{'variant_number': 1}]},
+            }), encoding='utf-8')
+
+            with mock.patch.object(inject_curated, 'convert_pdf_to_markdown', return_value='md'):
+                with self.assertRaisesRegex(SystemExit, '--checklist-receipt, --checklist-report'):
+                    inject_curated.main([
+                        '--pdf', str(pdf), '--course', str(course), '--apply',
+                    ])
+
+            value = inject_curated.serialized_sections(course)
+            receipt = curation_receipt.build_receipt(
+                course_value=value,
+                pdf_bytes=pdf.read_bytes(),
+                source_markdown_bytes=b'md',
+                report_text='reviewed',
+                review_items=1,
+                deterministic_findings=0,
+                llm_findings=0,
+                checks={
+                    'diff': 'completed', 'answer_keys': 'completed',
+                    'verbatim': 'completed', 'llm': 'skipped-missing-api-key',
+                },
+            )
+            receipt_path = root / 'receipt.json'
+            curation_receipt.write_receipt(receipt_path, receipt)
+            report_path = root / 'report.txt'
+            report_path.write_text('reviewed', encoding='utf-8')
+            source_md = root / 'source.md'
+            source_md.write_bytes(b'md')
+            with mock.patch.object(inject_curated, 'convert_pdf_to_markdown', return_value='md'):
+                with mock.patch.dict('os.environ', {}, clear=True):
+                    with self.assertRaisesRegex(SystemExit, 'Redis credentials are required'):
+                        inject_curated.main([
+                            '--pdf', str(pdf), '--course', str(course), '--apply',
+                            '--checklist-receipt', str(receipt_path),
+                            '--checklist-report', str(report_path),
+                            '--checklist-source-md', str(source_md),
+                        ])
+
+    def test_receipt_rejects_different_course_or_pdf(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'receipt.json'
+            receipt = curation_receipt.build_receipt(
+                course_value='{"a":[]}',
+                pdf_bytes=b'pdf-a',
+                source_markdown_bytes=b'md',
+                report_text='report',
+                review_items=0,
+                deterministic_findings=0,
+                llm_findings=0,
+                checks={
+                    'diff': 'completed', 'answer_keys': 'completed',
+                    'verbatim': 'completed', 'llm': 'skipped-missing-api-key',
+                },
+            )
+            curation_receipt.write_receipt(path, receipt)
+            with self.assertRaisesRegex(ValueError, 'course hash'):
+                curation_receipt.verify_receipt(
+                    path, course_value='{"b":[]}', pdf_bytes=b'pdf-a',
+                    source_markdown_bytes=b'md', report_text='report')
+            with self.assertRaisesRegex(ValueError, 'PDF hash'):
+                curation_receipt.verify_receipt(
+                    path, course_value='{"a":[]}', pdf_bytes=b'pdf-b',
+                    source_markdown_bytes=b'md', report_text='report')
+            receipt['checks']['answer_keys'] = 'skipped-missing-pymupdf'
+            curation_receipt.write_receipt(path, receipt)
+            with self.assertRaisesRegex(ValueError, 'answer_keys did not complete'):
+                curation_receipt.verify_receipt(
+                    path, course_value='{"a":[]}', pdf_bytes=b'pdf-a',
+                    source_markdown_bytes=b'md', report_text='report')
 
 
 class CuratedMigrationTest(unittest.TestCase):

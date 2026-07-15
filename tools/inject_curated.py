@@ -12,7 +12,15 @@ Examples::
     python3 tools/inject_curated.py --pdf /path/to/source.pdf
     python3 tools/inject_curated.py --pdf /path/to/source.pdf --apply
     python3 tools/inject_curated.py --pdf /path/to/source.pdf \
-        --course /path/to/course.json --apply
+        --course /path/to/course.json \
+        --checklist-receipt /path/to/checklist_receipt.json \
+        --checklist-report /path/to/checklist_report.txt \
+        --checklist-source-md /path/to/source.md --apply
+
+Publishing a supplied curated course requires a checklist receipt bound to
+the exact serialized sections and PDF. Byte-identical cache-version migration
+without ``--course`` remains exempt because no new curated content is being
+introduced.
 
 Redis credentials are read only from ``UPSTASH_REDIS_REST_URL`` and
 ``UPSTASH_REDIS_REST_TOKEN``.  Never pass credentials on the command line.
@@ -33,6 +41,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from answer_markers import _inject_answer_markers  # noqa: E402
+from tools.curation_receipt import verify_receipt  # noqa: E402
 
 
 DEFAULT_DISCOVER_VERSION = 'v30'
@@ -189,6 +198,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help='exact legacy Redis key when the production conversion hash changed',
     )
     parser.add_argument('--expected-pdf-sha256', help='refuse a different source PDF')
+    parser.add_argument(
+        '--checklist-receipt',
+        type=Path,
+        help='receipt emitted by curation_checklist.py for this exact course/PDF',
+    )
+    parser.add_argument('--checklist-report', type=Path, help='report bound by the checklist receipt')
+    parser.add_argument(
+        '--checklist-source-md', type=Path,
+        help='source markdown bound by the checklist receipt',
+    )
     parser.add_argument('--apply', action='store_true', help='write and verify the target key')
     return parser.parse_args(argv)
 
@@ -213,6 +232,26 @@ def main(argv: list[str] | None = None) -> int:
     print(f'target_key: {target_key}')
 
     supplied_value = serialized_sections(args.course) if args.course else None
+    if args.apply and args.course:
+        if not (args.checklist_receipt and args.checklist_report and args.checklist_source_md):
+            raise SystemExit(
+                '--checklist-receipt, --checklist-report and --checklist-source-md '
+                'are required when publishing --course with --apply')
+        try:
+            receipt = verify_receipt(
+                args.checklist_receipt,
+                course_value=supplied_value,
+                pdf_bytes=args.pdf.read_bytes(),
+                source_markdown_bytes=args.checklist_source_md.read_bytes(),
+                report_text=args.checklist_report.read_text(encoding='utf-8'),
+            )
+        except (ValueError, OSError, UnicodeError) as error:
+            raise SystemExit(f'checklist receipt verification failed: {error}') from error
+        print(
+            'checklist_receipt: verified '
+            f'(review_items={receipt["review_items"]}, '
+            f'deterministic_findings={receipt["deterministic_findings"]}, '
+            f'llm_findings={receipt["llm_findings"]})')
     url = os.environ.get('UPSTASH_REDIS_REST_URL', '')
     token = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
     if not url or not token:

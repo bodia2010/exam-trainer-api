@@ -55,6 +55,7 @@ USAGE:
         --source-md /path/to/updated-source.md \\
         [--out /tmp/checklist_report.txt] \\
         [--out-review /tmp/review_subset.json] \\
+        [--receipt /tmp/checklist_receipt.json] \\
         [--runs 3]
 
 Both course JSONs accept either the bare {section_type: [items]} shape or
@@ -87,6 +88,10 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
+_PROJECT_DIR = _SCRIPTS_DIR.parent
+sys.path.insert(0, str(_PROJECT_DIR))
+from tools.curation_receipt import build_receipt, write_receipt  # noqa: E402
+from tools.inject_curated import serialized_sections  # noqa: E402
 
 
 def _load_module(name: str, filename: str):
@@ -152,6 +157,10 @@ def main():
                          help='Write the consolidated report here instead of stdout.')
     parser.add_argument('--out-review', type=Path, default=None,
                          help='Keep the review-subset JSON here instead of a throwaway temp file.')
+    parser.add_argument(
+        '--receipt', type=Path, default=None,
+        help='Write a receipt binding this checklist to the exact new course and PDF.',
+    )
     parser.add_argument('--runs', type=int, default=3,
                          help='verify_content.py --runs for the step 4 LLM audit (default 3).')
     args = parser.parse_args()
@@ -159,6 +168,7 @@ def main():
         parser.error('--runs must be >= 1')
 
     blocks: list[str] = []
+    checks = {'diff': 'completed'}
 
     # -------------------------------------------------------------------
     # Step 1: update_curated_content — diff old vs new course -> review
@@ -200,7 +210,15 @@ def main():
 
     if not changed:
         blocks.append('Review scope is empty — nothing changed, skipping steps 2-4.')
-        _emit(blocks, args.out, header=args.new_course.name)
+        checks.update({
+            'answer_keys': 'not-needed',
+            'verbatim': 'not-needed',
+            'llm': 'not-needed',
+        })
+        report_text = _emit(blocks, args.out, header=args.new_course.name)
+        _save_receipt(
+            args, report_text, review_items=0,
+            deterministic_findings=0, llm_findings=0, checks=checks)
         return
 
     # -------------------------------------------------------------------
@@ -210,6 +228,7 @@ def main():
              '(PDF highlight geometry vs extracted answers)', '=' * 72]
     answer_key_summary: dict = {}
     if check_answer_keys is None:
+        checks['answer_keys'] = 'skipped-missing-pymupdf'
         step2.append(f'SKIPPED — PyMuPDF (fitz) not importable in this interpreter: '
                      f'{_FITZ_IMPORT_ERROR}')
         step2.append('Rerun this checklist with a venv that has PyMuPDF installed to '
@@ -217,6 +236,7 @@ def main():
     else:
         code, out, err = _run_module_main(
             check_answer_keys, ['--pdf', str(args.pdf), '--course-json', str(review_path)])
+        checks['answer_keys'] = 'completed' if code == 0 else f'failed-exit-{code}'
         answer_key_summary = _parse_summary_dict(out)
         step2.append(out.strip() or '(no output)')
         if err.strip():
@@ -244,6 +264,7 @@ def main():
         step3.append(err.strip())
     step3.append(f'(exit code {code})')
     blocks.append('\n'.join(step3))
+    checks['verbatim'] = 'completed' if code == 0 else f'failed-exit-{code}'
 
     # -------------------------------------------------------------------
     # Step 4: verify_content — LLM audit, --runs N, cross-run consensus.
@@ -257,8 +278,10 @@ def main():
     api_key = os.environ.get('GEMINI_API_KEY', '')
     llm_high = llm_low = 0
     if not api_key:
+        checks['llm'] = 'skipped-missing-api-key'
         step4.append('SKIPPED — GEMINI_API_KEY not set in the environment.')
     else:
+        checks['llm'] = 'completed'
         markdown = args.source_md.read_text(encoding='utf-8')
         for section_type in sorted(review.keys()):
             section_json = review[section_type]
@@ -315,16 +338,46 @@ def main():
         'cached content.',
     ]
     blocks.insert(0, '\n'.join(summary))
-    _emit(blocks, args.out, header=args.new_course.name)
+    report_text = _emit(blocks, args.out, header=args.new_course.name)
+    _save_receipt(
+        args, report_text, review_items=len(changed),
+        deterministic_findings=deterministic_total,
+        llm_findings=llm_total, checks=checks)
 
 
-def _emit(blocks: list[str], out_path: Path | None, header: str) -> None:
+def _emit(blocks: list[str], out_path: Path | None, header: str) -> str:
     text = f'# Curation checklist — {header}\n\n' + '\n\n'.join(blocks)
     if out_path:
         out_path.write_text(text, encoding='utf-8')
         print(f'Report written to {out_path}', file=sys.stderr)
     else:
         print(text)
+    return text
+
+
+def _save_receipt(
+    args: argparse.Namespace,
+    report_text: str,
+    *,
+    review_items: int,
+    deterministic_findings: int,
+    llm_findings: int,
+    checks: dict[str, str],
+) -> None:
+    if not args.receipt:
+        return
+    receipt = build_receipt(
+        course_value=serialized_sections(args.new_course),
+        pdf_bytes=args.pdf.read_bytes(),
+        source_markdown_bytes=args.source_md.read_bytes(),
+        report_text=report_text,
+        review_items=review_items,
+        deterministic_findings=deterministic_findings,
+        llm_findings=llm_findings,
+        checks=checks,
+    )
+    write_receipt(args.receipt, receipt)
+    print(f'Checklist receipt written to {args.receipt}', file=sys.stderr)
 
 
 if __name__ == '__main__':
