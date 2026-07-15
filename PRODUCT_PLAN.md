@@ -58,15 +58,16 @@
   `flutter test -d <device> integration_test/...` запрещён: стандартный
   teardown Flutter может удалить base production package и его локальные
   данные даже при flavored APK.
-- Текущий проверенный baseline (после независимой перепроверки P2,
-  2026-07-15): backend — 72 unit tests (не изменялся); Flutter — 248
-  тестов (было 233 до перепроверки, 191 до P2), включая host/device smoke
-  основного PDF → курс → упражнение flow.
+- Текущий проверенный baseline (после ВТОРОГО раунда независимой
+  перепроверки P2, 2026-07-15): backend — 72 unit tests (не изменялся);
+  Flutter — 255 тестов (было 248 после первого раунда, 233 до
+  перепроверки, 191 до P2), включая host/device smoke основного PDF →
+  курс → упражнение flow.
   `flutter analyze` проходит без замечаний; `dart format
   --set-exit-if-changed .` чист; `flutter test --coverage` —
-  2334/4703 строк (49,63%); production
-  flavor release APK не пересобиралась в сессии перепроверки (только
-  клиентский код + тесты, без изменения release-конфигурации).
+  2423/4746 строк (51,05%); production
+  flavor release APK не пересобиралась ни в одном раунде перепроверки
+  (только клиентский код + тесты, без изменения release-конфигурации).
 - P1 (CR-07 cloud sync outbox, CR-09/CR-10 device gate policy, CR-11 typed
   API errors, CR-12 Android privacy) закрыт 2026-07-15. Backend force-device
   и course-delete сохраняют `{ok:bool}`, но теперь подтверждают только
@@ -105,6 +106,33 @@
   device-gate и роутинг); `file_picker` заблокирован намеренно (`c53c20c`:
   11.x ломает сборку с текущим toolchain, 10.3.11 retracted) — см.
   `CODE_REVIEW_2026-07-15.md` «Независимая перепроверка P2 (CR-08/CR-14)».
+- **Второй раунд независимой перепроверки (тем же днём) нашёл ещё два
+  дефекта в только что «закрытом» CR-14** — первый раунд закрыл CR-14
+  преждевременно. HIGH: `TtsService._enforceCacheBudget` вызывалась
+  независимо каждым concurrent commit'ом РАЗНЫХ ключей без синхронизации
+  между ними — два одновременных commit'а могли оба увидеть один и тот же
+  over-budget снимок каталога и оба удалить файл, иногда оставляя кэш
+  пустым там, где нужно было удалить ровно один. Исправлено новой
+  глобальной очередью `_evictionChain` (`_commitAndEnforceBudget`,
+  отдельной от per-key `_pendingByKey`), с параметром `exclude`,
+  гарантирующим, что `ensureAudio()` никогда не возвращает путь, который
+  его же собственный eviction-проход только что удалил; синтез для разных
+  ключей остаётся параллельным, сериализован только commit+evict хвост. 2
+  новых теста, проверенных как настоящий regression (временный откат
+  воспроизвёл падение 6/6 прогонов). MEDIUM: `DialogueAudioPlayer._playFrom`
+  переводил UI в `playing` до вызова `_player.play()`; сбой `play()`/
+  `setPlaybackRate()` молча проглатывался, оставляя виджет с «играющим»
+  баром без звука и без выхода. Исправлено единым try/catch → generic
+  localized error state; добавлен минимальный injectable
+  `AudioPlayerAdapter` (`@visibleForTesting debugPlayerFactory`, `null` в
+  проде → настоящий `AudioPlayer`) — впервые позволяет тестам реально
+  достигать `playing`/`paused`, в обход незамоканных `audioplayers`
+  platform channels. 5 новых тестов. **CR-14 теперь честно закрыт** — оба
+  раунда независимой перепроверки пройдены. См.
+  `CODE_REVIEW_2026-07-15.md` «Второй раунд независимой перепроверки P2
+  (CR-14): concurrent eviction и DialogueAudioPlayer play-error state».
+  Итоговый Flutter-тест-baseline после обоих раундов: 255 тестов,
+  coverage 51,05%.
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
   оставшуюся часть CR-13/CR-15/CR-16, acceptance criteria и безопасные
   команды: `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
