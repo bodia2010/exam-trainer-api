@@ -14,17 +14,18 @@
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
 - Текущие версии кэша клиента: discovery `v30`, parse `v36`; APK
-  `1.0.0+6`. Последняя проверенная release-сборка лежит в
-  `/home/igor/Downloads/exam-trainer-v37-release.apk`. Подписанный AAB для
+  `1.0.0+7`. Последняя проверенная release-сборка лежит в
+  `/home/igor/Downloads/exam-trainer-v38-release.apk`. Подписанный AAB для
   Play Console лежит в
-  `/home/igor/Downloads/exam-trainer-v37-release.aab` (versionCode 6,
+  `/home/igor/Downloads/exam-trainer-v38-release.aab` (versionCode 7,
   targetSdk 36, SHA-256
-  `0b8dffa035a9cdee48e44be4ceb08780141a0277f6f4e351e608c37f64639540`);
-  103 Flutter-теста и `flutter analyze` без замечаний пройдены 2026-07-15,
+  `708d4fe628c658e91504b4ed48de54b458d9fcc3072f2c596814ebca8dc4a8d3`);
+  105 Flutter-тестов и `flutter analyze` без замечаний пройдены 2026-07-15,
   подпись APK проверена. Финальные APK/AAB содержат выбранный тёплый редизайн,
-  иконку Exam Trainer и только production API URL; emulator URL отсутствует.
+  нативный светлый splash и Flutter-preloader, иконку Exam Trainer и только
+  production API URL; emulator URL отсутствует.
   APK SHA-256:
-  `4b9ae6512afa3d72c77bcf1d8a01c687ccadf892f9f0ad4c88785ae2fb3b1632`.
+  `1a52066556c51dfb539da2f9e2e478a19519de277e7d0309c05bc03a1bcad6d7`.
 - Free tier не запускает discovery для нового PDF. Уже обработанный документ
   читается из общего doc-кэша и на клиенте безопасно сокращается до первого
   варианта каждого раздела и первой редакции telefonnotiz.
@@ -38,7 +39,7 @@
 - Перед production-деплоем Vercel всегда отдельно подтвердить действие с
   пользователем. Не выводить и не сохранять Firebase-токены, Gemini-ключи,
   OAuth-коды или signing passwords.
-- Текущий локальный baseline: backend — 67 unit tests; Flutter — 103 tests.
+- Текущий локальный baseline: backend — 67 unit tests; Flutter — 105 tests.
   `flutter analyze` проходит без замечаний.
 
 ## Детальное описание программы
