@@ -500,10 +500,16 @@ def parse():
             return jsonify(json.loads(text))
 
         parsed = json.loads(text)
+        if section_type == 'hoeren_teil1':
+            parsed = span_resolution.normalize_h1_variant_numbers(parsed, markdown)
         if section_type == 'telefonnotiz':
             parsed = span_resolution.resolve_telefonnotiz_spans(parsed, markdown)
         if section_type in SPAN_TEXT_SECTION_TYPES:
-            parsed = span_resolution.resolve_universal_text_spans(parsed, markdown)
+            parsed = span_resolution.resolve_universal_text_spans(
+                parsed,
+                markdown,
+                section_type=section_type,
+            )
         parsed = span_resolution.sanitize_parser_metadata(parsed)
         return jsonify(parsed)
     except GeminiError as e:

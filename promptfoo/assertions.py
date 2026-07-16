@@ -18,13 +18,387 @@ pipeline has actually hit (not generic "looks reasonable" checks):
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.dirname(__file__))
 from response_schemas import SPAN_TEXT_SECTION_TYPES, _UNIVERSAL_QUESTION_COUNTS  # noqa: E402
 import line_extraction  # noqa: E402
+import span_resolution  # noqa: E402
 from fixture_loader import load_markdown  # noqa: E402
+
+
+_VOICE_GENDERS = {'female', 'male', 'unknown'}
+
+
+def _not_applicable(reason):
+    return {'pass': True, 'score': 1, 'reason': reason}
+
+
+def _voice_failure(reason):
+    return {'pass': False, 'score': 0, 'reason': reason}
+
+
+def _voice_success(reason):
+    return {'pass': True, 'score': 1, 'reason': reason}
+
+
+def _objects_or_failure(output):
+    try:
+        objects = _parse(output)
+    except Exception as e:
+        return None, _voice_failure(f'invalid JSON: {e}')
+    if not isinstance(objects, list):
+        return None, _voice_failure('top-level output is not a JSON array')
+    return objects, None
+
+
+def hoeren_teil4_voice_metadata_matches_fixture(output, context):
+    """The existing real Hören Teil 4 eval must exercise all three hints.
+
+    ``expected_text_voice_genders`` is deliberately fixture-owned rather
+    than inferred from arbitrary names here. This assertion is a regression
+    contract for that one known fixture, not a second production gender
+    classifier which could repeat the bug the metadata feature removes.
+    Tests without the variable remain no-ops, so the two unrelated Hören
+    Teil 4 span/correction fixtures do not create additional paid calls.
+    """
+    if context['vars'].get('section_type') != 'hoeren_teil4':
+        return _not_applicable('not Hören Teil 4')
+    expected_raw = context['vars'].get('expected_text_voice_genders')
+    if expected_raw is None:
+        return _not_applicable('no fixture voice-gender expectation configured')
+    try:
+        expected = json.loads(expected_raw) if isinstance(expected_raw, str) else expected_raw
+    except Exception as e:
+        return _voice_failure(f'invalid expected_text_voice_genders: {e}')
+    if not isinstance(expected, list) or not expected or any(
+            gender not in _VOICE_GENDERS for gender in expected):
+        return _voice_failure(
+            'expected_text_voice_genders must be a non-empty female/male/unknown array')
+
+    objects, failure = _objects_or_failure(output)
+    if failure:
+        return failure
+    try:
+        markdown = load_markdown(context)
+        objects = span_resolution.apply_contextual_voice_metadata(
+            objects,
+            markdown,
+            'hoeren_teil4',
+        )
+    except Exception as e:
+        return _voice_failure(f'cannot apply contextual Hören Teil 4 metadata: {e}')
+    actual = []
+    for object_index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            return _voice_failure(f'object[{object_index}] is not an object')
+        for text_index, text in enumerate(obj.get('texts') or []):
+            path = f'object[{object_index}].texts[{text_index}]'
+            if not isinstance(text, dict):
+                return _voice_failure(f'{path} is not an object')
+            metadata = text.get('metadata')
+            if not isinstance(metadata, dict):
+                return _voice_failure(f'{path} is missing metadata')
+            gender = metadata.get('voice_gender')
+            if gender not in _VOICE_GENDERS:
+                return _voice_failure(f'{path} has invalid/missing voice_gender: {gender!r}')
+            if metadata.get('speaker_voice_genders'):
+                return _voice_failure(
+                    f'{path} is a monologue but contains speaker_voice_genders')
+            actual.append(gender)
+
+    if actual != expected:
+        return _voice_failure(
+            f'Hören Teil 4 voice genders {actual!r}, expected {expected!r}')
+    return _voice_success(f'Hören Teil 4 voice genders match: {actual!r}')
+
+
+_DIALOGUE_SPEAKER_RE = re.compile(
+    r'(?:^|\n)\s*([A-ZÄÖÜ][\wÄÖÜäöüß]*(?:\s+[A-ZÄÖÜ0-9][\wÄÖÜ0-9äöüß]*)?)'
+    r'\s*(?::|-)\s*',
+    re.MULTILINE,
+)
+_FEMALE_ROLE_LABELS = {'frau', 'kundin', 'chefin', 'leiterin', 'verkäuferin'}
+_MALE_ROLE_LABELS = {
+    'herr', 'kunde', 'chef', 'leiter', 'teamleiter', 'verkäufer',
+}
+
+
+def _expected_role_gender(speaker):
+    first = speaker.casefold().split()[0]
+    if first in _FEMALE_ROLE_LABELS:
+        return 'female'
+    if first in _MALE_ROLE_LABELS:
+        return 'male'
+    return 'unknown'
+
+
+def hoeren_teil1_speaker_voice_metadata_exact(output, context):
+    """Every labelled Hören Teil 1 turn needs one exact, non-invented hint."""
+    if context['vars'].get('section_type') != 'hoeren_teil1':
+        return _not_applicable('not Hören Teil 1')
+    expected_raw = context['vars'].get('expected_dialogue_speaker_sets')
+    if expected_raw is None:
+        return _voice_failure('no expected_dialogue_speaker_sets configured')
+    try:
+        expected_lists = (
+            json.loads(expected_raw) if isinstance(expected_raw, str) else expected_raw
+        )
+    except Exception as e:
+        return _voice_failure(f'invalid expected_dialogue_speaker_sets: {e}')
+    if (
+            not isinstance(expected_lists, list)
+            or not expected_lists
+            or any(
+                not isinstance(labels, list)
+                or not labels
+                or any(not isinstance(label, str) or not label for label in labels)
+                or len(set(labels)) != len(labels)
+                for labels in expected_lists)):
+        return _voice_failure(
+            'expected_dialogue_speaker_sets must be a non-empty array of '
+            'non-empty unique string arrays')
+    expected_sets = [frozenset(labels) for labels in expected_lists]
+    if len(set(expected_sets)) != len(expected_sets):
+        return _voice_failure('expected_dialogue_speaker_sets contains duplicates')
+    optional_raw = context['vars'].get('optional_dialogue_speaker_sets', [])
+    try:
+        optional_lists = (
+            json.loads(optional_raw) if isinstance(optional_raw, str) else optional_raw
+        )
+    except Exception as e:
+        return _voice_failure(f'invalid optional_dialogue_speaker_sets: {e}')
+    if not isinstance(optional_lists, list) or any(
+            not isinstance(labels, list)
+            or not labels
+            or any(not isinstance(label, str) or not label for label in labels)
+            for labels in optional_lists):
+        return _voice_failure(
+            'optional_dialogue_speaker_sets must be an array of non-empty string arrays')
+    optional_sets = [frozenset(labels) for labels in optional_lists]
+    allowed_sets = set(expected_sets) | set(optional_sets)
+
+    objects, failure = _objects_or_failure(output)
+    if failure:
+        return failure
+    try:
+        markdown = load_markdown(context)
+        objects = span_resolution.normalize_h1_variant_numbers(objects, markdown)
+    except Exception as e:
+        return _voice_failure(f'cannot normalize Hören Teil 1 variants: {e}')
+    expected_object_count = context['vars'].get('expected_items')
+    if expected_object_count is not None:
+        try:
+            expected_object_count = int(expected_object_count)
+        except (TypeError, ValueError) as e:
+            return _voice_failure(f'invalid expected_items: {e}')
+        if len(objects) != expected_object_count:
+            return _voice_failure(
+                f'Hören Teil 1 output has {len(objects)} object(s), expected exactly '
+                f'{expected_object_count} complete edition(s)')
+    if _contains_placeholder(objects):
+        return _voice_failure('Hören Teil 1 output contains fabricated placeholder content')
+    expected_variant_raw = context['vars'].get('expected_variant_number')
+    if expected_variant_raw is not None:
+        try:
+            expected_variant = int(expected_variant_raw)
+        except (TypeError, ValueError) as e:
+            return _voice_failure(f'invalid expected_variant_number: {e}')
+        wrong_variants = [
+            obj.get('variant_number') if isinstance(obj, dict) else None
+            for obj in objects
+            if not isinstance(obj, dict) or obj.get('variant_number') != expected_variant
+        ]
+        if wrong_variants:
+            return _voice_failure(
+                f'Hören Teil 1 contains variant numbers outside '
+                f'{expected_variant}: {wrong_variants!r}')
+    expected_variants_raw = context['vars'].get('expected_variant_numbers')
+    if expected_variants_raw is not None:
+        try:
+            expected_variants = (
+                json.loads(expected_variants_raw)
+                if isinstance(expected_variants_raw, str)
+                else expected_variants_raw
+            )
+        except Exception as e:
+            return _voice_failure(f'invalid expected_variant_numbers: {e}')
+        actual_variants = [
+            obj.get('variant_number') if isinstance(obj, dict) else None
+            for obj in objects
+        ]
+        if actual_variants != expected_variants:
+            return _voice_failure(
+                f'Hören Teil 1 variant numbers {actual_variants!r}, '
+                f'expected {expected_variants!r}')
+    checked_pairs = 0
+    seen_sets = set()
+    for object_index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            return _voice_failure(f'object[{object_index}] is not an object')
+        for pair_index, pair in enumerate(obj.get('question_pairs') or []):
+            if not isinstance(pair, dict):
+                return _voice_failure(
+                    f'object[{object_index}].question_pairs[{pair_index}] is not an object')
+            dialogue = pair.get('dialogue')
+            path = f'object[{object_index}].question_pairs[{pair_index}]'
+            if not isinstance(dialogue, str) or not dialogue.strip():
+                return _voice_failure(f'{path} has missing/empty dialogue')
+            speakers = list(dict.fromkeys(
+                match.group(1).strip() for match in _DIALOGUE_SPEAKER_RE.finditer(dialogue)))
+            if not speakers:
+                return _voice_failure(f'{path} has no parseable speaker labels')
+            speaker_set = frozenset(speakers)
+            if speaker_set not in allowed_sets:
+                return _voice_failure(
+                    f'{path} speaker set {sorted(speaker_set)!r} is not one of the '
+                    f'fixture-owned expected sets '
+                    f'{[sorted(labels) for labels in allowed_sets]!r}')
+            seen_sets.add(speaker_set)
+            checked_pairs += 1
+            metadata = pair.get('metadata')
+            if not isinstance(metadata, dict):
+                return _voice_failure(f'{path} is missing metadata')
+            if metadata.get('voice_gender') is not None:
+                return _voice_failure(
+                    f'{path} is a labelled dialogue but contains recording-wide voice_gender')
+            hints = metadata.get('speaker_voice_genders')
+            if not isinstance(hints, list):
+                return _voice_failure(f'{path} is missing speaker_voice_genders')
+
+            actual = {}
+            for hint_index, hint in enumerate(hints):
+                if not isinstance(hint, dict):
+                    return _voice_failure(f'{path}.speaker_voice_genders[{hint_index}] is invalid')
+                speaker = hint.get('speaker')
+                gender = hint.get('voice_gender')
+                if not isinstance(speaker, str) or not speaker:
+                    return _voice_failure(f'{path} contains an empty/non-string speaker')
+                if speaker in actual:
+                    return _voice_failure(f'{path} contains duplicate speaker {speaker!r}')
+                if gender not in _VOICE_GENDERS:
+                    return _voice_failure(
+                        f'{path} speaker {speaker!r} has invalid voice_gender {gender!r}')
+                actual[speaker] = gender
+
+            expected = {speaker: _expected_role_gender(speaker) for speaker in speakers}
+            if actual != expected:
+                invented = sorted(set(actual) - set(expected))
+                missing = sorted(set(expected) - set(actual))
+                wrong = {
+                    speaker: (actual.get(speaker), gender)
+                    for speaker, gender in expected.items()
+                    if speaker in actual and actual[speaker] != gender
+                }
+                return _voice_failure(
+                    f'{path} speaker metadata mismatch; invented={invented!r}, '
+                    f'missing={missing!r}, wrong={wrong!r}')
+
+    if checked_pairs == 0:
+        return _voice_failure('Hören Teil 1 output contained no labelled dialogue pairs')
+    missing_sets = [
+        sorted(labels) for labels in expected_sets if labels not in seen_sets
+    ]
+    if missing_sets:
+        return _voice_failure(
+            f'Hören Teil 1 output is missing expected speaker sets: {missing_sets!r}')
+    return _voice_success(
+        f'{checked_pairs} Hören Teil 1 dialogue pair(s) have exact speaker metadata '
+        f'and cover all {len(expected_sets)} required fixture sets')
+
+
+def telefonnotiz_nested_voice_metadata_matches_fixture(output, context):
+    """Match every nested Telefonnotiz version to its fixture-owned hint."""
+    if context['vars'].get('section_type') != 'telefonnotiz':
+        return _not_applicable('not Telefonnotiz')
+    expected_raw = context['vars'].get('expected_version_voice_genders')
+    if expected_raw is None:
+        return _not_applicable('no fixture voice-gender expectations configured')
+    try:
+        expected = (
+            json.loads(expected_raw) if isinstance(expected_raw, str) else expected_raw
+        )
+    except Exception as e:
+        return _voice_failure(f'invalid expected_version_voice_genders: {e}')
+    if (
+            not isinstance(expected, list)
+            or not expected
+            or any(gender not in _VOICE_GENDERS for gender in expected)):
+        return _voice_failure(
+            'expected_version_voice_genders must be a non-empty '
+            'female/male/unknown array')
+
+    objects, failure = _objects_or_failure(output)
+    if failure:
+        return failure
+    expected_variant_raw = context['vars'].get('expected_variant_number')
+    if expected_variant_raw is not None:
+        try:
+            expected_variant = int(expected_variant_raw)
+        except (TypeError, ValueError) as e:
+            return _voice_failure(f'invalid expected_variant_number: {e}')
+        if len(objects) != 1:
+            return _voice_failure(
+                'Telefonnotiz fixture editions must be grouped into exactly one '
+                f'variant {expected_variant} object, got {len(objects)} objects')
+        actual_variant = (
+            objects[0].get('variant_number')
+            if isinstance(objects[0], dict)
+            else None
+        )
+        if type(actual_variant) is not int or actual_variant != expected_variant:
+            return _voice_failure(
+                f'Telefonnotiz variant_number is {actual_variant!r}, expected '
+                f'{expected_variant}; split-slash edition numbers must not be concatenated')
+    actual = []
+    for object_index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            return _voice_failure(f'object[{object_index}] is not an object')
+        for version_index, version in enumerate(obj.get('versions') or []):
+            if not isinstance(version, dict):
+                return _voice_failure(
+                    f'object[{object_index}].versions[{version_index}] is not an object')
+            path = f'object[{object_index}].versions[{version_index}]'
+            metadata = version.get('metadata')
+            if not isinstance(metadata, dict):
+                return _voice_failure(f'{path} is missing metadata')
+            gender = metadata.get('voice_gender')
+            if gender not in _VOICE_GENDERS:
+                return _voice_failure(
+                    f'{path} has invalid/missing voice_gender: {gender!r}')
+            if metadata.get('speaker_voice_genders'):
+                return _voice_failure(
+                    f'{path} is a monologue but contains speaker_voice_genders')
+            actual.append(gender)
+
+    if not actual:
+        return _voice_failure('Telefonnotiz output contained no nested versions')
+    if actual != expected:
+        return _voice_failure(
+            f'Telefonnotiz version voice genders {actual!r}, expected {expected!r}')
+    return _voice_success(f'Telefonnotiz version voice genders match: {actual!r}')
+
+
+def lesen_teil1_has_no_voice_metadata(output, context):
+    """The shared universal prompt/schema must not annotate reading text."""
+    if context['vars'].get('section_type') != 'lesen_teil1':
+        return _not_applicable('not Lesen Teil 1')
+    objects, failure = _objects_or_failure(output)
+    if failure:
+        return failure
+    contaminated = []
+    for object_index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            return _voice_failure(f'object[{object_index}] is not an object')
+        for text_index, text in enumerate(obj.get('texts') or []):
+            if isinstance(text, dict) and text.get('metadata') is not None:
+                contaminated.append(f'object[{object_index}].texts[{text_index}]')
+    if contaminated:
+        return _voice_failure(
+            f'reading text unexpectedly contains TTS metadata: {contaminated!r}')
+    return _voice_success('Lesen Teil 1 contains no TTS metadata')
 
 
 def _parse(output):
@@ -32,6 +406,16 @@ def _parse(output):
     if text.startswith('```'):
         text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
     return json.loads(text)
+
+
+def _contains_placeholder(value):
+    if isinstance(value, str):
+        return value.strip().casefold() == 'placeholder'
+    if isinstance(value, list):
+        return any(_contains_placeholder(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_placeholder(item) for item in value.values())
+    return False
 
 
 def other_markers_present(output, context):
@@ -270,11 +654,15 @@ def span_texts_resolve_cleanly(output, context):
                 continue
 
             heading_lines = _validate_heading_lines(
-                text.get('heading_lines'), path, failures, start, end, len(raw_lines))
+                text.get('heading_lines'), path, failures, len(raw_lines))
             if heading_lines is None:
                 continue
 
             if start == -1 and end == -1:
+                if heading_lines:
+                    failures.append(
+                        f'{path} missing-text sentinel must not contain heading_lines')
+                    continue
                 resolved = '(nicht angegeben)'
             elif start < 0 or end < 0:
                 failures.append(f'{path} has a negative non-sentinel span: {text!r}')
@@ -287,6 +675,21 @@ def span_texts_resolve_cleanly(output, context):
                     f'{path} span is out of range for {len(raw_lines)} source line(s): {text!r}')
                 continue
             else:
+                try:
+                    start, end = line_extraction.normalize_span_for_adjacent_headings(
+                        raw_lines,
+                        start,
+                        end,
+                        heading_lines,
+                    )
+                    line_extraction.validate_heading_lines(
+                        heading_lines,
+                        start,
+                        end,
+                    )
+                except (TypeError, ValueError) as e:
+                    failures.append(f'{path} has invalid heading_lines: {e}')
+                    continue
                 resolved = line_extraction.extract_block(
                     raw_lines, start, end, heading_lines=heading_lines)
                 if not resolved:
@@ -319,7 +722,7 @@ def _is_plain_int(value):
     return type(value) is int
 
 
-def _validate_heading_lines(value, path, failures, start, end, raw_line_count):
+def _validate_heading_lines(value, path, failures, raw_line_count):
     if value is None:
         return []
     if not isinstance(value, list):
@@ -330,9 +733,9 @@ def _validate_heading_lines(value, path, failures, start, end, raw_line_count):
         if not _is_plain_int(item):
             failures.append(f'{path} heading_lines contains non-integer value: {item!r}')
             continue
-        if item < 0 or item >= raw_line_count or item < start or item > end:
+        if item < 0 or item >= raw_line_count:
             failures.append(
-                f'{path} heading_lines entry is outside the text span/source lines: {item!r}')
+                f'{path} heading_lines entry is outside source lines: {item!r}')
             continue
         headings.append(item)
     if len(headings) != len(value):

@@ -932,3 +932,104 @@ Flutter 299/299, coverage 61.33%; backend 86/86 + `py_compile`; device PDF
 integration прошёл. Production APK собран, установлен и cold-launched без
 crash. Manual TTS listening после авторизации ещё требуется; backend deploy не
 выполнялся.
+
+## Cost-aware Promptfoo gate для TTS metadata (2026-07-16)
+
+Paid gate больше не повторяет огромный discovery fixture автоматически.
+`promptfoo/run_all.sh` требует явный mode: `--parse-only` запускает 18 cases;
+`--discover-only` делает ровно один discovery pass, а `--full-release`
+сначала требует зелёный parse и только затем запускает discovery. Любая
+ошибка fail-closed; `--dry-run` позволяет бесплатно проверить выбранный scope.
+Для текущего TTS rollout DISCOVER prompt/schema/model config не менялись,
+поэтому change-relevant gate — parse-only.
+
+Существующие parse-вызовы теперь доказывают новый контракт, не увеличивая
+число запросов: Hören Teil 4 проверяет ожидаемую последовательность
+`voice_gender`, Hören Teil 1 — точные speaker labels без пропусков/дубликатов/
+выдуманных speakers, Telefonnotiz — metadata внутри каждой `versions[]`, а
+Lesen Teil 1 — отсутствие TTS metadata. Custom provider возвращает Promptfoo
+фактический `usageMetadata`, включая thinking/cached tokens, и оценку стоимости
+для двух production-моделей; секреты, raw response body и fixture content в
+ошибки не попадают. Ожидаемый paid scope этого rollout уменьшен с обычных 21
+вызова (~$0.45–0.55) и прежнего worst case 27 вызовов (~$1.15–1.25) до 18
+вызовов (~$0.10–0.20).
+
+Discovery остаётся обязательным при изменении `DISCOVER`, `DISCOVER_SCHEMA`,
+его model/generation config или discovery processing. Перед production deploy
+также обязательна миграция curated/full-course cache с parse `v36` на `v37`,
+иначе Free-пользователь не получит hit для уже курируемого документа.
+
+### Первый live parse gate и remediation (2026-07-16)
+
+Подтверждённый `--parse-only` pass выполнил ровно 18 Gemini Flash-Lite calls;
+discovery и retry не запускались. Фактический usage: 53,050 input, 36,746
+candidate-output и 7,777 thinking tokens, всего 97,573; provider оценил
+Standard-tier стоимость в `$0.080047`. Результат 14/18 — release заблокирован,
+как и должен делать fail-closed gate.
+
+Четыре failures проверены по сохранённому локальному eval без повторного spend:
+
+- Lesen Teil 2 вернул корректные headings непосредственно перед body spans,
+  отделённые одной пустой строкой. Runtime теперь детерминированно расширяет
+  span на такой соседний heading (не более двух строк, только через blank gap),
+  сохраняя fail-closed для дальних/отделённых контентом значений. Captured
+  response replay: 4/4 текста разрешаются без sentinel.
+- Hören Teil 1 схлопнул шесть `<<<ITEM>>>` fragments в один объект и склеил
+  speaker turns. Тип переведён с MINIMAL на LOW thinking; gate теперь требует
+  минимум три полные editions, обязательные speaker sets и сохраняет строгие
+  exact-label voice checks. Headerless fragments наследуют последний явно
+  указанный номер варианта и могут образовать допустимую четвёртую edition.
+- Telefonnotiz ошибочно превратил `variant 3/1` в `variant_number: 31` и вынес
+  edition в отдельный объект. Prompt получил явное правило `N/M → N`; gate
+  требует один variant 3 с пятью editions и пятью contextual male hints.
+- Hören Teil 4 правильно определил фактического male narrator вместо
+  отсутствующей Frau Plassberg, но ошибся для явно указанной Frau Bernhardt.
+  Voice rule теперь требует сначала определить фактического говорящего по
+  self-identification и matching question/answer block. Fixture expectation:
+  `female, male, female, male, female`; конкретные имена в production prompt
+  не добавлялись.
+
+После remediation выполнялись только change-focused checks. Telefonnotiz стал
+зелёным; H4 исправляется детерминированно по same-speaker `Frau/Herr` evidence
+и прошёл replay трёх оплаченных outputs; H1 сохраняет speaker turns и даёт 3
+обязательные полные editions, иногда плюс четвёртую headerless edition. Оба
+варианта допустимы: минимум 3, один явный source variant number, три required
+speaker sets, optional `Chef/Frau`, без placeholder content.
+
+Последняя попытка offline replay через Promptfoo `--model-outputs` неожиданно
+не отключила custom Python provider: Promptfoo автоматически загрузил локальный
+`.env` и сделал ещё один полный live run. Не использовать этот флаг как
+гарантию отсутствия spend для данного config. Этот run дал 17/18; единственный
+H1 failure был старым чрезмерным exact-count=4. Его сохранённый output содержит
+3 полные editions и проходит текущие assertions, поэтому regrade текущего
+последнего набора — эффективные 18/18 без нового API-вызова.
+
+Суммарная оценённая стоимость всех содержательных live calls этой remediation:
+`$0.222686`. Две попытки H1 на 3.5 Flash завершились 503/timeout до usage и
+показали `$0`; сильная модель отменена, H1 остаётся на Flash-Lite + LOW.
+Production deploy, cache migration, commit и push на момент этой записи ещё не
+выполнялись.
+
+### Curated cache v37 pre-release (2026-07-16)
+
+Проверка production-equivalent конвертации в изолированном release venv
+воспроизвела исходный digest `a758e73f...` при PDF SHA-256
+`53634b0c...`, поэтому `pdfminer.six` закреплён на `20260107`. Byte-identical
+копирование v36 запрещено: исходный curated course содержал 0 voice metadata.
+Сформирован `course_curated_v37.json` из прежнего проверенного курса с
+ограниченным overlay только для оплаченных/regraded совпадающих блоков:
+Hören Teil 1 variant 2 (оба curated editions), Hören Teil 4 variant 1 и
+Telefonnotiz variant 3. Остальные 138 элементов оставлены byte-identical и
+сохраняют legacy fallback.
+
+Checklist receipt для v37: 4 changed items, 138 reused, answer-key check OK,
+verbatim check OK (`SPLIT_ACROSS_EDITIONS` 11), 0 deterministic findings,
+LLM audit skipped because no key was exported in the local curation shell.
+Receipt и generated course находятся вне репозитория в
+`/home/igor/Downloads/exam-trainer-curation/`; перед Redis write receipt
+должен быть проверен `inject_curated.py --course` с явными `v36 → v37`.
+В этой сессии `vercel env pull --environment=production` вернул пустые значения
+для `UPSTASH_REDIS_REST_URL` и `UPSTASH_REDIS_REST_TOKEN` (имена переменных
+видны, секретные значения недоступны), поэтому Redis dry-run/apply и
+production deploy намеренно не выполнялись. Это текущий release blocker, а не
+успешная миграция.

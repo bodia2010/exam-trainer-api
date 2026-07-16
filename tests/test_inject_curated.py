@@ -66,6 +66,12 @@ class CuratedCacheKeyTest(unittest.TestCase):
         ])
         self.assertEqual('v30.v32|doc|legacy-hash', args.source_key)
 
+    def test_defaults_follow_current_voice_metadata_cache_rollout(self):
+        args = inject_curated.parse_args(['--pdf', '/tmp/source.pdf'])
+
+        self.assertEqual('v36', args.source_parse_version)
+        self.assertEqual('v37', args.target_parse_version)
+
     def test_course_apply_requires_matching_checklist_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

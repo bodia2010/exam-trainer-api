@@ -1,0 +1,14 @@
+.idea/
+.codegraph/
+.agents/
+.codex/
+.env
+.env.*
+promptfoo/
+tests/
+scripts/
+tools/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+PRODUCT_PLAN.md

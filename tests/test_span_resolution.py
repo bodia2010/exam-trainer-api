@@ -366,19 +366,210 @@ class ResolveUniversalTextSpansTest(unittest.TestCase):
 
     def test_heading_lines_entries_are_coerced_and_must_stay_inside_span(self):
         parsed = [
-            {'texts': [{'title': 'Bool heading', 'start_line': 0, 'end_line': 1, 'heading_lines': [True]}]},
-            {'texts': [{'title': 'Text heading', 'start_line': 0, 'end_line': 1, 'heading_lines': ['x']}]},
-            {'texts': [{'title': 'Outside heading', 'start_line': 1, 'end_line': 1, 'heading_lines': ['0']}]},
+            {'texts': [{'title': 'Bool heading', 'start_line': 0, 'end_line': 2, 'heading_lines': [True]}]},
+            {'texts': [{'title': 'Text heading', 'start_line': 0, 'end_line': 2, 'heading_lines': ['x']}]},
+            {'texts': [{'title': 'Outside heading', 'start_line': 2, 'end_line': 2, 'heading_lines': ['0']}]},
         ]
 
         with self.assertLogs('span_resolution', level='WARNING'):
-            result = span_resolution.resolve_universal_text_spans(parsed, 'heading\nbody')
+            result = span_resolution.resolve_universal_text_spans(
+                parsed,
+                'heading\nnon-blank gap\nbody',
+            )
 
         for item in result:
             self.assertEqual(
                 item['texts'],
                 [{'title': '(nicht angegeben)', 'content': '(nicht angegeben)'}],
             )
+
+    def test_adjacent_heading_before_body_expands_real_fixture_pattern(self):
+        lines = [f'unused {index}' for index in range(75)]
+        lines[5] = 'First heading'
+        lines[6] = ''
+        lines[7] = 'First body'
+        lines[18] = 'First ending'
+        lines[54] = 'Second heading'
+        lines[55] = '   '
+        lines[56] = 'Second body'
+        lines[74] = 'Second ending'
+        parsed = [{
+            'texts': [
+                {
+                    'title': 'First',
+                    'start_line': 7,
+                    'end_line': 18,
+                    'heading_lines': [5],
+                },
+                {
+                    'title': 'Second',
+                    'start_line': 56,
+                    'end_line': 74,
+                    'heading_lines': [54],
+                },
+            ],
+        }]
+
+        result = span_resolution.resolve_universal_text_spans(
+            parsed,
+            '\n'.join(lines),
+        )
+
+        self.assertTrue(result[0]['texts'][0]['content'].startswith(
+            '**First heading**\n\nFirst body'
+        ))
+        self.assertTrue(result[0]['texts'][1]['content'].startswith(
+            '**Second heading**\n\nSecond body'
+        ))
+
+    def test_adjacent_heading_after_body_is_rejected_as_next_passage(self):
+        parsed = [{
+            'texts': [{
+                'title': 'After',
+                'start_line': 0,
+                'end_line': 0,
+                'heading_lines': [2],
+            }],
+        }]
+
+        with self.assertLogs('span_resolution', level='WARNING'):
+            result = span_resolution.resolve_universal_text_spans(
+                parsed,
+                'Body\n\nTrailing heading',
+            )
+
+        self.assertEqual(
+            result[0]['texts'],
+            [{'title': '(nicht angegeben)', 'content': '(nicht angegeben)'}],
+        )
+
+    def test_distant_and_nonblank_separated_headings_remain_invalid(self):
+        parsed = [
+            {'texts': [{
+                'title': 'Distant',
+                'start_line': 3,
+                'end_line': 3,
+                'heading_lines': [0],
+            }]},
+            {'texts': [{
+                'title': 'Crosses content',
+                'start_line': 2,
+                'end_line': 2,
+                'heading_lines': [0],
+            }]},
+        ]
+
+        with self.assertLogs('span_resolution', level='WARNING'):
+            result = span_resolution.resolve_universal_text_spans(
+                parsed,
+                'Heading\nnon-blank gap\nBody\nOther body',
+            )
+
+        for item in result:
+            self.assertEqual(
+                item['texts'],
+                [{'title': '(nicht angegeben)', 'content': '(nicht angegeben)'}],
+            )
+
+    def test_h4_matching_question_title_corrects_same_speaker_gender(self):
+        parsed = [{'texts': [
+            {
+                'title': 'Nummer 39 Lattermann',
+                'start_line': 0,
+                'end_line': 1,
+                'metadata': {'voice_gender': 'female'},
+            },
+            {
+                'title': 'Nummer 40 Bernhardt',
+                'start_line': 3,
+                'end_line': 4,
+                'metadata': {'voice_gender': 'male'},
+            },
+        ]}]
+        markdown = '\n'.join([
+            'Nummer 39 Lattermann',
+            'Hallo, Guido Lattermann von der Firma Top.',
+            '39. Herr Lattermann',
+            'Nummer 40 Bernhardt',
+            'Bernhardt, Geschäftsleitung. Guten Tag.',
+            '40. Frau Bernhardt',
+        ])
+
+        result = span_resolution.resolve_universal_text_spans(
+            parsed,
+            markdown,
+            section_type='hoeren_teil4',
+        )
+
+        self.assertEqual(result[0]['texts'][0]['metadata']['voice_gender'], 'male')
+        self.assertEqual(result[0]['texts'][1]['metadata']['voice_gender'], 'female')
+
+    def test_h4_absent_titled_third_party_does_not_override_narrator(self):
+        parsed = [{'texts': [{
+            'title': 'Nummer 37 Frau Plassberg',
+            'start_line': 0,
+            'end_line': 1,
+            'metadata': {'voice_gender': 'male'},
+        }]}]
+        markdown = '\n'.join([
+            'Nummer 37 Frau Plassberg',
+            'Hallo, hier ist Zeuner, der neue Assistent der Geschäftsleitung.',
+            '37. Frau Plassberg',
+        ])
+
+        result = span_resolution.resolve_universal_text_spans(
+            parsed,
+            markdown,
+            section_type='hoeren_teil4',
+        )
+
+        self.assertEqual(result[0]['texts'][0]['metadata']['voice_gender'], 'male')
+
+    def test_h4_span_starting_at_transcript_keeps_self_identification(self):
+        parsed = [{'texts': [{
+            'title': 'Nummer 40 Bernhardt',
+            'start_line': 0,
+            'end_line': 0,
+            'metadata': {'voice_gender': 'male'},
+        }]}]
+        markdown = '\n'.join([
+            'Bernhardt, Geschäftsleitung. Guten Tag.',
+            '40. Frau Bernhardt',
+        ])
+
+        result = span_resolution.resolve_universal_text_spans(
+            parsed,
+            markdown,
+            section_type='hoeren_teil4',
+        )
+
+        self.assertEqual(result[0]['texts'][0]['metadata']['voice_gender'], 'female')
+
+    def test_h1_sole_explicit_header_normalizes_headerless_editions(self):
+        parsed = [
+            {'variant_number': 2},
+            {'variant_number': 3},
+            {'variant_number': 99},
+        ]
+        markdown = (
+            'Hören Teil 1 (вариант №2)\n'
+            'erste Edition\n<<<ITEM>>>\nheaderlose Fortsetzung'
+        )
+
+        result = span_resolution.normalize_h1_variant_numbers(parsed, markdown)
+
+        self.assertEqual([item['variant_number'] for item in result], [2, 2, 2])
+
+    def test_h1_multiple_explicit_headers_are_not_globally_rewritten(self):
+        parsed = [{'variant_number': 2}, {'variant_number': 3}]
+        markdown = (
+            'Hören Teil 1 (вариант №2)\n'
+            'Hören Teil 1 (вариант №3)'
+        )
+
+        result = span_resolution.normalize_h1_variant_numbers(parsed, markdown)
+
+        self.assertEqual([item['variant_number'] for item in result], [2, 3])
 
     def test_non_dict_text_item_becomes_whole_item_sentinel(self):
         parsed = [{'texts': ['not a dict']}]

@@ -44,14 +44,11 @@ tests:
   # whole new edition, splitting one variant's content into pieces and
   # starving the real object of its own questions/texts downstream.
   #
-  # Measured ~1-in-3 flaky on this fixture even after the prompt fix
-  # (discovery runs at temperature=1, deliberately — see
-  # generation_config.py). That's an accepted, monitored risk, not a
-  # regression to chase to zero: a parse-level schema mismatch downstream
-  # (response_schemas.py) still catches the resulting malformed object
-  # before it reaches a user, per parse_service.dart's validation+retry.
-  # Treat a single failed run here as inconclusive; a NEW, consistent
-  # failure across several runs is the actual signal to investigate.
+  # Historical runs at temperature=1 showed sampling flakiness here.
+  # Production discovery now uses temperature=0 for deterministic numeric
+  # boundaries. Any failure is therefore a real gate failure to investigate;
+  # run_all.sh never retries this small failure by resubmitting the expensive
+  # full-document fixture.
   - description: "Single-question answer corrections must not split a variant into extra items"
     vars:
       section_type: discover

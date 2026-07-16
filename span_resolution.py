@@ -17,6 +17,11 @@ NO_ANSWER_SENTINEL = '(nicht angegeben)'
 _LOGGER = logging.getLogger(__name__)
 _INTEGER_STRING_RE = re.compile(r'^[+-]?\d+$')
 _VALID_VOICE_GENDERS = {'female', 'male', 'unknown'}
+_H4_TITLE_RE = re.compile(r'^\s*Nummer\s+(?P<number>\d+)\s+(?P<label>.+?)\s*$', re.I)
+_H1_VARIANT_HEADER_RE = re.compile(
+    r'Hören\s+Teil\s+1\s*\(\s*вариант\s*№\s*(\d+)',
+    re.I,
+)
 
 
 def _warn_invalid(kind: str, reason: str) -> None:
@@ -116,7 +121,126 @@ def sanitize_parser_metadata(parsed: Any) -> Any:
     return parsed
 
 
-def _coerce_heading_lines(text_item: dict[str, Any], start: int, end: int) -> list[int]:
+def _last_name(value: str) -> str:
+    tokens = re.findall(r'[A-Za-zÄÖÜäöüß]+', value.casefold())
+    return tokens[-1] if tokens else ''
+
+
+def _self_identified_speaker(lines: list[str]) -> str:
+    text = ' '.join(line.strip() for line in lines if line.strip())
+    patterns = (
+        r'\bhier\s+(?:ist|spricht)\s+([A-ZÄÖÜ][\wÄÖÜäöüß-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß-]*)?)',
+        r'^\s*Hallo,\s+([A-ZÄÖÜ][\wÄÖÜäöüß-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß-]*)?)\s+von\b',
+        r'^\s*([A-ZÄÖÜ][\wÄÖÜäöüß-]*(?:\s+[A-ZÄÖÜ][\wÄÖÜäöüß-]*)?)\s*,',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
+    return ''
+
+
+def apply_contextual_voice_metadata(
+    parsed: Any,
+    markdown: str,
+    section_type: str,
+) -> Any:
+    """Correct Hören Teil 4 gender only from explicit same-speaker evidence.
+
+    A task title can name an absent person while somebody else leaves the
+    message. Therefore a matching ``Frau/Herr`` question label is authoritative
+    only when the transcript self-identifies the same surname. This keeps the
+    rule generic and avoids hardcoded person-name lists.
+    """
+    if section_type != 'hoeren_teil4' or not isinstance(parsed, list):
+        return parsed
+
+    raw_lines = markdown.split('\n')
+    for obj in parsed:
+        if not isinstance(obj, dict):
+            continue
+        texts = obj.get('texts')
+        if not isinstance(texts, list):
+            continue
+        for text_item in texts:
+            if not isinstance(text_item, dict):
+                continue
+            title = text_item.get('title')
+            if not isinstance(title, str):
+                continue
+            title_match = _H4_TITLE_RE.match(title)
+            if not title_match:
+                continue
+            try:
+                start = _coerce_span_index(text_item.get('start_line'))
+                end = _coerce_span_index(text_item.get('end_line'))
+                line_extraction.validate_inclusive_span(raw_lines, start, end)
+            except (TypeError, ValueError):
+                continue
+
+            number = title_match.group('number')
+            question_match = None
+            question_re = re.compile(
+                rf'^\s*{re.escape(number)}\.\s*(Frau|Herr)\s+(.+?)\s*$',
+                re.I,
+            )
+            for line in raw_lines[end + 1:min(len(raw_lines), end + 13)]:
+                question_match = question_re.match(line)
+                if question_match:
+                    break
+            if question_match is None:
+                continue
+
+            speaker_lines = raw_lines[start:end + 1]
+            # A valid span may start either at the printed Nummer label or at
+            # the first transcript line. Skip only an actual label, never the
+            # transcript's self-identification.
+            if speaker_lines and re.match(
+                    rf'^\s*Nummer\s+{re.escape(number)}\b',
+                    speaker_lines[0],
+                    re.I):
+                speaker_lines = speaker_lines[1:]
+            speaker = _self_identified_speaker(speaker_lines)
+            if not speaker:
+                continue
+            question_person = question_match.group(2)
+            if _last_name(speaker) != _last_name(question_person):
+                continue
+
+            metadata = text_item.get('metadata')
+            if not isinstance(metadata, dict):
+                metadata = {}
+                text_item['metadata'] = metadata
+            metadata['voice_gender'] = (
+                'female' if question_match.group(1).casefold() == 'frau' else 'male'
+            )
+    return parsed
+
+
+def normalize_h1_variant_numbers(parsed: Any, markdown: str) -> Any:
+    """Use the sole explicit H1 header for headerless continuation fragments.
+
+    Discovery may split later edition fragments after the printed variant
+    header. When the complete input contains exactly one explicit H1 variant
+    number, inventing a different number is impossible: every emitted edition
+    inherits that sole source value.
+    """
+    if not isinstance(parsed, list):
+        return parsed
+    explicit_numbers = {
+        int(match.group(1))
+        for match in _H1_VARIANT_HEADER_RE.finditer(markdown)
+    }
+    if len(explicit_numbers) != 1:
+        return parsed
+    variant_number = next(iter(explicit_numbers))
+    for obj in parsed:
+        if isinstance(obj, dict):
+            obj['variant_number'] = variant_number
+    return parsed
+
+
+def _coerce_heading_lines(text_item: dict[str, Any]) -> list[int]:
     if 'heading_lines' not in text_item:
         return []
     raw_heading_lines = text_item['heading_lines']
@@ -125,9 +249,7 @@ def _coerce_heading_lines(text_item: dict[str, Any], start: int, end: int) -> li
     if not isinstance(raw_heading_lines, list):
         raise TypeError('heading_lines must be a list when present')
 
-    heading_lines = [_coerce_span_index(line) for line in raw_heading_lines]
-    line_extraction.validate_heading_lines(heading_lines, start, end)
-    return heading_lines
+    return [_coerce_span_index(line) for line in raw_heading_lines]
 
 
 def resolve_telefonnotiz_spans(parsed: list, markdown: str) -> list:
@@ -178,8 +300,13 @@ def resolve_telefonnotiz_spans(parsed: list, markdown: str) -> list:
     return sanitize_parser_metadata(parsed)
 
 
-def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
+def resolve_universal_text_spans(
+    parsed: list,
+    markdown: str,
+    section_type: str = '',
+) -> list:
     """Resolve universal-schema texts[] spans to legacy title/content items."""
+    parsed = apply_contextual_voice_metadata(parsed, markdown, section_type)
     raw_lines = markdown.split('\n')
     for item in parsed:
         if not isinstance(item, dict):
@@ -225,7 +352,14 @@ def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
                 continue
 
             try:
-                heading_lines = _coerce_heading_lines(text_item, start, end)
+                heading_lines = _coerce_heading_lines(text_item)
+                start, end = line_extraction.normalize_span_for_adjacent_headings(
+                    raw_lines,
+                    start,
+                    end,
+                    heading_lines,
+                )
+                line_extraction.validate_heading_lines(heading_lines, start, end)
             except (TypeError, ValueError):
                 _warn_invalid('universal_text', 'invalid_heading_lines')
                 resolved.append(_copy_metadata(text_item, _text_item_sentinel()))

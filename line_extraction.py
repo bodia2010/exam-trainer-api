@@ -75,6 +75,60 @@ def validate_heading_lines(
     return headings
 
 
+def normalize_span_for_adjacent_headings(
+    raw_lines: list[str],
+    start_line: int,
+    end_line: int,
+    heading_lines: list[int] | None,
+    *,
+    max_distance: int = 2,
+) -> tuple[int, int]:
+    """Expand a valid span to include an immediately preceding heading.
+
+    Gemini occasionally points ``heading_lines`` at a genuine standalone
+    heading just outside the body span. Repair only the unambiguous PDF
+    layout: the heading is at most ``max_distance`` source lines from the
+    boundary, its own line is non-blank, and every intervening line is blank.
+    Distant headings and headings separated by any source content remain
+    invalid instead of widening a span into an unrelated block.
+    """
+    start, end = validate_inclusive_span(raw_lines, start_line, end_line)
+    if heading_lines is None:
+        return start, end
+    if not isinstance(heading_lines, list):
+        raise TypeError('heading_lines must be a list of integers')
+    if not isinstance(max_distance, int) or isinstance(max_distance, bool):
+        raise TypeError('max_distance must be an integer')
+    if max_distance < 1:
+        raise ValueError('max_distance must be positive')
+
+    normalized_start = start
+    normalized_end = end
+    for heading in heading_lines:
+        if not isinstance(heading, int) or isinstance(heading, bool):
+            raise TypeError('heading_lines must be a list of integers')
+        if not 0 <= heading < len(raw_lines):
+            raise ValueError('heading_lines must name existing source lines')
+        if start <= heading <= end:
+            continue
+        if not raw_lines[heading].strip():
+            raise ValueError('heading_lines must not point at blank source lines')
+
+        if heading < start:
+            if start - heading > max_distance:
+                raise ValueError('heading before span is not adjacent')
+            if any(line.strip() for line in raw_lines[heading + 1:start]):
+                raise ValueError('heading before span crosses non-blank content')
+            normalized_start = min(normalized_start, heading)
+            continue
+
+        # A heading after the body is ambiguous: it is normally the heading
+        # of the next passage. Never widen the current span forward.
+        raise ValueError('heading after span is not part of the current text')
+
+    return normalized_start, normalized_end
+
+
 def number_markdown(markdown: str) -> str:
     lines = markdown.split('\n')
     return '\n'.join(f'{i:05d}: {line}' for i, line in enumerate(lines))

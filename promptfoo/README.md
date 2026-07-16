@@ -44,50 +44,80 @@ and makes the eval input differ from production. `fixture_loader.py` reads the
 UTF-8 bytes without trimming; prompt functions and source-based assertions use
 that same raw value.
 
-## Running — standard pre-deploy gate
+## Running — cost-aware pre-deploy gate
 
 Before deploying any prompt/schema change (per the current rules in
 `../PRODUCT_PLAN.md`: bump the affected cache version, run promptfoo, migrate
 the curated cache, and rebuild the APK), run:
 
+Use the smallest gate that covers the changed effective payload:
+
 ```bash
-./run_all.sh
+./run_all.sh --parse-only            # 18 parse cases
+./run_all.sh --discover-only         # one discovery pass
+./run_all.sh --full-release          # parse, then one discovery pass
+./run_all.sh --full-release --dry-run
 ```
 
-This is the one command that gives a single PASS/FAIL verdict across both
-configs:
+- A mode is mandatory: a bare `./run_all.sh` fails before making calls. This
+  prevents a future discovery change from silently receiving a parse-only
+  release verdict.
+- Parse runs its 18 tests once with zero tolerance. The TTS rollout is
+  checked inside those existing calls: Hören Teil 4, Hören Teil 1 and
+  Telefonnotiz must return the expected voice metadata, while Lesen Teil 1
+  must not receive TTS metadata.
+- Discovery is explicit because the full-document fixture dominates cost.
+  Use it when `DISCOVER`, `DISCOVER_SCHEMA`, its model/generation config or
+  discovery processing changed. A full release can still require both stages.
+- `--full-release` stops after a parse failure, before spending on discovery.
+  Discovery runs exactly once. Any failed test fails closed; the script never
+  resubmits the full document just because a small synthetic regression failed.
+- `--dry-run` needs no API key and makes no network calls.
 
-- `promptfooconfig.parse.yaml` runs once — any failure (any of the 18
-  tests) fails the gate. Parse is not documented as flaky anywhere, so
-  there's zero tolerance here.
-- `promptfooconfig.discover.yaml` runs up to 3 times, because its own
-  comments document the `single_question_correction_not_split` regression
-  test as ~1-in-3 flaky at `temperature=1` (an accepted, monitored risk,
-  not something to chase to zero — see the yaml). The script stops as
-  soon as one run comes back fully green. If it never does, it still
-  passes (with a loud warning) as long as every failure seen was that one
-  documented-flaky test and nothing else; it fails hard if the *other*
-  discover test (`other_markers_present` / `item_count_at_least`, not
-  documented as flaky) ever fails, or on any unrecognized failure — so a
-  real regression can't hide behind the known flakiness.
+The runner is pinned to the locally validated Promptfoo CLI version; update
+that pin deliberately together with config validation and offline shell tests.
 
-Exit code is non-zero only on a stable/real failure, so it's suitable as
-a CI gate. Requires `GOOGLE_API_KEY` (see setup above); the script checks
-for it up front and refuses to run instead of burning API calls on a
-misconfigured environment.
+The custom provider returns Gemini token usage and a Standard-tier cost
+estimate to Promptfoo. Thinking tokens are billed as output; cached input is
+reported and charged at the model's cached-input rate. Unknown A/B models keep
+their token counts but deliberately omit a cost instead of using a guessed
+price. Update the reviewed rates in `gemini_schema_provider.py` and
+`scripts/cost_report.py` together when production models or Google pricing
+change.
+
+The first live TTS-metadata parse gate on 2026-07-16 made exactly 18 calls,
+used 97,573 total tokens and reported an estimated `$0.080047` cost. It failed
+closed at 14/18 and exposed four concrete issues; the deterministic repairs and
+captured-response replay are recorded in `../PRODUCT_PLAN.md`. For a new or
+changed fixture, prompt, model or assertion contract, a live run must not be
+treated as green until all 18 strict results pass. For this unchanged captured
+fixture, release evidence is the recorded response set plus a direct,
+no-network replay through the current runtime/assertion helpers; that replay
+passes all 18 cases after the documented deterministic remediation.
+
+Do not use Promptfoo `--model-outputs` as an assumed offline replay mechanism
+with this custom Python provider: version 0.121.19 still invoked the live
+provider and auto-loaded the local `.env` in the verified run. Offline replay
+must call the Python assertions/runtime helpers directly with an explicitly
+sanitized environment, or use a dedicated no-network provider config.
+
+Exit code is non-zero for any selected assertion, provider, malformed-result
+or environment failure, so the runner fails closed and is suitable as a CI
+gate. Requires `GOOGLE_API_KEY` (see setup above); the script checks for it up
+front and refuses to run instead of burning API calls on a misconfigured
+environment.
 
 ## Running individual configs (for iterating on one prompt/fixture)
 
 ```bash
-npx promptfoo@latest eval -c promptfooconfig.discover.yaml
-npx promptfoo@latest eval -c promptfooconfig.parse.yaml
-npx promptfoo@latest view   # opens a side-by-side web UI of the results
+npx promptfoo@0.121.19 eval -c promptfooconfig.discover.yaml
+npx promptfoo@0.121.19 eval -c promptfooconfig.parse.yaml
+npx promptfoo@0.121.19 view   # opens a side-by-side web UI of the results
 ```
 
-Useful while actively editing a single prompt, but `run_all.sh` is the
-command to run before actually shipping — it's the only one that applies
-the discover retry/tolerance logic instead of reporting a raw pass/fail
-on a test known to blip ~1 in 3 runs.
+Useful while actively editing a single prompt. Before shipping, use
+`run_all.sh` with the mode matching the changed production payload; use
+`--full-release` whenever both parse and discovery require validation.
 
 ## Adding a new candidate model
 

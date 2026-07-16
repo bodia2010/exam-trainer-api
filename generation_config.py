@@ -50,7 +50,8 @@ def model_for(section_type: str) -> str:
 # client's validation-triggered retry — the exact same "drops content
 # under load, retry doesn't help" signature as the other four.
 HEAVY_SECTION_TYPES = {
-    'beschwerde', 'hoeren_teil2', 'hoeren_teil3', 'hoeren_teil4', 'telefonnotiz',
+    'beschwerde', 'hoeren_teil1', 'hoeren_teil2', 'hoeren_teil3', 'hoeren_teil4',
+    'telefonnotiz',
 }
 
 

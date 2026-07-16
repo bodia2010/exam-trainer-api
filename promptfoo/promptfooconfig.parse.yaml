@@ -35,6 +35,14 @@ defaultTest:
       value: file://assertions.py:texts_not_empty
     - type: python
       value: file://assertions.py:span_texts_resolve_cleanly
+    - type: python
+      value: file://assertions.py:hoeren_teil4_voice_metadata_matches_fixture
+    - type: python
+      value: file://assertions.py:hoeren_teil1_speaker_voice_metadata_exact
+    - type: python
+      value: file://assertions.py:telefonnotiz_nested_voice_metadata_matches_fixture
+    - type: python
+      value: file://assertions.py:lesen_teil1_has_no_voice_metadata
 
 tests:
   # Use markdown_path, never Promptfoo's text file:// variable loader:
@@ -55,9 +63,20 @@ tests:
   - description: "sprachbausteine_teil2 — heaviest multi-edition variant"
     vars: { section_type: sprachbausteine_teil2, markdown_path: fixtures/sprachbausteine_teil2.txt, min_items: 2 }
   - description: "telefonnotiz — heaviest multi-edition variant (nested versions, not top-level objects)"
-    vars: { section_type: telefonnotiz, markdown_path: fixtures/telefonnotiz.txt, min_items: 1 }
+    vars:
+      section_type: telefonnotiz
+      markdown_path: fixtures/telefonnotiz.txt
+      min_items: 1
+      expected_variant_number: 3
+      expected_version_voice_genders: '["male", "male", "male", "male", "male"]'
   - description: "hoeren_teil1 — heaviest multi-edition variant (our known-tricky case)"
-    vars: { section_type: hoeren_teil1, markdown_path: fixtures/hoeren_teil1.txt, min_items: 2 }
+    vars:
+      section_type: hoeren_teil1
+      markdown_path: fixtures/hoeren_teil1.txt
+      min_items: 3
+      expected_variant_number: 2
+      expected_dialogue_speaker_sets: '[["Kundin", "Verkäufer"], ["TN 1", "TN 2", "TN 3"], ["Frau", "Herr"]]'
+      optional_dialogue_speaker_sets: '[["Chef", "Frau"]]'
   - description: "hoeren_teil2 — heaviest multi-edition variant"
     vars: { section_type: hoeren_teil2, markdown_path: fixtures/hoeren_teil2.txt, min_items: 2 }
   - description: "hoeren_teil3 — heaviest multi-edition variant"
@@ -67,7 +86,12 @@ tests:
   # the same five-message variant. The parse prompt must merge them into one
   # object; treating each <<<ITEM>>> as an edition was a false-positive gate.
   - description: "hoeren_teil4 — three correction chunks must merge into one variant"
-    vars: { section_type: hoeren_teil4, markdown_path: fixtures/hoeren_teil4.txt, min_items: 1, expected_items: 1 }
+    vars:
+      section_type: hoeren_teil4
+      markdown_path: fixtures/hoeren_teil4.txt
+      min_items: 1
+      expected_items: 1
+      expected_text_voice_genders: '["female", "male", "female", "male", "female"]'
 
   # Regression tests below use synthetic fixtures (regression_fixtures/,
   # committed to git — unlike fixtures/, they're hand-written, not

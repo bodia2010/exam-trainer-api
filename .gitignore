@@ -19,3 +19,4 @@ promptfoo/results_*.json
 # document they were written against (see the 2026-07-12 commit that
 # introduced check_answer_keys.py/verify_content.py for the reasoning).
 scripts/fix_course.py
+.idea/

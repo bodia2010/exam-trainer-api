@@ -22,7 +22,7 @@ class SpanTextsResolveCleanlyTest(unittest.TestCase):
         'Trailing source line.',
     ])
 
-    def _assertion_result(self, text, section_type='lesen_teil2'):
+    def _assertion_result(self, text, section_type='lesen_teil2', markdown=None):
         output = json.dumps([{
             'variant_number': 42,
             'version': None,
@@ -31,7 +31,7 @@ class SpanTextsResolveCleanlyTest(unittest.TestCase):
         context = {
             'vars': {
                 'section_type': section_type,
-                'markdown': self.MARKDOWN,
+                'markdown': markdown if markdown is not None else self.MARKDOWN,
             }
         }
         return promptfoo_assertions.span_texts_resolve_cleanly(output, context)
@@ -88,14 +88,62 @@ class SpanTextsResolveCleanlyTest(unittest.TestCase):
                     'heading_lines': [heading],
                 })
 
-    def test_rejects_heading_lines_outside_span(self):
-        for heading in (0, 3):
-            with self.subTest(heading=heading):
-                self.assertRejected({
-                    'start_line': 1,
-                    'end_line': 2,
-                    'heading_lines': [heading],
-                })
+    def test_accepts_adjacent_heading_before_span(self):
+        result = self._assertion_result({
+            'start_line': 1,
+            'end_line': 2,
+            'heading_lines': [0],
+        })
+
+        self.assertTrue(result['pass'], result['reason'])
+
+    def test_accepts_captured_blank_separated_heading_pattern(self):
+        result = self._assertion_result(
+            {
+                'start_line': 2,
+                'end_line': 3,
+                'heading_lines': [0],
+            },
+            markdown='Heading\n\nBody\nEnding',
+        )
+
+        self.assertTrue(result['pass'], result['reason'])
+
+    def test_rejects_distant_or_nonblank_separated_heading(self):
+        cases = (
+            ('Heading\n\n\nBody', 3, 3, 0),
+            ('Heading\nnot blank\nBody', 2, 2, 0),
+        )
+        for markdown, start, end, heading in cases:
+            with self.subTest(markdown=markdown):
+                result = self._assertion_result(
+                    {
+                        'start_line': start,
+                        'end_line': end,
+                        'heading_lines': [heading],
+                    },
+                    markdown=markdown,
+                )
+                self.assertFalse(result['pass'], result['reason'])
+
+    def test_rejects_heading_after_body_as_next_passage(self):
+        result = self._assertion_result(
+            {
+                'start_line': 0,
+                'end_line': 0,
+                'heading_lines': [2],
+            },
+            markdown='Body\n\nNext passage heading',
+        )
+
+        self.assertFalse(result['pass'], result['reason'])
+
+    def test_missing_span_sentinel_rejects_heading_lines(self):
+        self.assertRejected({
+            'start_line': -1,
+            'end_line': -1,
+            'heading_lines': [0],
+        })
 
     def test_non_span_section_is_no_op(self):
         result = self._assertion_result(

@@ -321,13 +321,34 @@ def check_truncated(norm_value: str, idx: SourceIndex):
             # either — confirmed live on "a) gibt herrn klein
             # schutzkleidung. / übergibt ...", where the first half's
             # stray period alone was enough to break the set lookup.
-            other_halves = [
-                re.sub(r'^[a-h]\)\s*', '', p.strip()).rstrip('.。 ').strip()
-                for p in _normalize(text).split('/')
-            ]
+            other_halves = _slash_alternatives(text)
             other_halves = [p for p in other_halves if p and p != norm_value]
             return lo, hi, text, other_halves
         start = pos + 1
+
+
+def _slash_alternatives(value: str) -> list[str]:
+    """Return comparable edition alternatives from one slash-separated field."""
+    alternatives = []
+    for piece in _normalize(value).split('/'):
+        piece = re.sub(r'^[a-h]\)\s*', '', piece.strip())
+        piece = re.sub(r'\s*[–-]\s*\d+%\s*$', '', piece)
+        piece = piece.rstrip('.。 ').strip()
+        if piece:
+            alternatives.append(piece)
+    return alternatives
+
+
+def _has_sibling_alternative(candidate: str, known_values: set[str]) -> bool:
+    if candidate in known_values:
+        return True
+    if len(candidate) < 10 or ' ' not in candidate:
+        return False
+    return any(
+        candidate in known or known in candidate
+        for known in known_values
+        if len(known) >= 10 and ' ' in known
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +428,7 @@ def main():
             nv = _normalize(value)
             if nv:
                 all_values.add(nv)
+                all_values.update(_slash_alternatives(value))
 
     counts: Counter[str] = Counter()
     for section_type, item in iter_items(sections, args.section_type):
@@ -424,7 +446,8 @@ def main():
             trunc = check_truncated(norm_value, idx)
             if trunc is not None:
                 lo, hi, candidate, other_halves = trunc
-                if any(oh in all_values for oh in other_halves):
+                if any(_has_sibling_alternative(oh, all_values)
+                       for oh in other_halves):
                     counts['SPLIT_ACROSS_EDITIONS'] += 1
                     continue  # the other half is some OTHER field's own
                               # verbatim value elsewhere in this course —
