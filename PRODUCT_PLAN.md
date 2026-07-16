@@ -175,6 +175,8 @@
   1/1 на Samsung SM-S938B с сохранением production package; выделенный
   real-device TTS stress/error smoke всё ещё отсутствует. Backend gate —
   72/72 + `py_compile` во временном venv.
+  Реализация Flutter: `4d1c668` (`phase5-account-deletion`); этот план:
+  `d89e8cf` (`phase3-2-promptfoo-gate`), backend-код не менялся.
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
   оставшуюся часть CR-13/CR-15/CR-16, acceptance criteria и безопасные
   команды: `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
