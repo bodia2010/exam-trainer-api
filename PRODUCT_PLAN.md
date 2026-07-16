@@ -60,13 +60,14 @@
   данные даже при flavored APK.
 - Текущий проверенный baseline (после ЧЕТВЁРТОГО раунда независимой
   перепроверки P2, 2026-07-16): backend — 72 unit tests (не изменялся);
-  Flutter — 263 тест (было 261 после третьего раунда, 255 после второго, 248 после первого,
+  Flutter — 269 тест (было 263 после четвёртого раунда, 261 после третьего,
+  255 после второго, 248 после первого,
   233 до перепроверки, 191 до P2), включая host/device smoke основного
   PDF → курс → упражнение flow.
   `flutter analyze` проходит без замечаний; `dart format
   --set-exit-if-changed .` чист; `flutter test --coverage` —
-  2521/4799 строк (52,53%); production flavor release APK успешно
-  пересобрана локально после четвёртого раунда (не опубликована).
+  2829/4822 строк (58,67%); production flavor release APK успешно
+  пересобрана локально после CR-15 (не опубликована).
 - P1 (CR-07 cloud sync outbox, CR-09/CR-10 device gate policy, CR-11 typed
   API errors, CR-12 Android privacy) закрыт 2026-07-15. Backend force-device
   и course-delete сохраняют `{ok:bool}`, но теперь подтверждают только
@@ -95,9 +96,10 @@
   проверяется на уникальность (4 новых/изменённых теста), legacy-fixture
   расширена с 10 до всех 12 типов упражнений. CR-08 и CR-14 теперь честно
   закрыты по полному списку требований, не только по первоначальной
-  формулировке. CR-13 (Course/Exercise loader) и CR-15
-  (localization/accessibility) не трогались в сессии перепроверки и
-  остаются частично продвинутыми — DropdownButton gap-labeling и реальный
+  формулировке. В рамках описываемой здесь сессии CR-13 (Course/Exercise
+  loader) и CR-15 (localization/accessibility) не трогались; это
+  исторический срез, актуализированный ниже разделом от 2026-07-16. На тот
+  момент оставались частично продвинутыми — DropdownButton gap-labeling и реальный
   TalkBack-прогон ещё не сделаны, хотя устройство было доступно в конце
   сессии (задача не входила в её объём). CR-16: только patch/minor
   Firebase bump выполнен; `go_router`/`google_fonts`/`device_info_plus`
@@ -177,6 +179,17 @@
   72/72 + `py_compile` во временном venv.
   Реализация Flutter: `4d1c668` (`phase5-account-deletion`); этот план:
   `d89e8cf` (`phase3-2-promptfoo-gate`), backend-код не менялся.
+- **CR-15 gap accessibility продвинут 2026-07-16.** Оба Sprachbausteine
+  dropdown объявляют локализованный реальный номер PDF-пропуска, сохраняют
+  tap/value Semantics и имеют 48 dp target. Teil 1 хранит исходный marker
+  отдельно от внутреннего индекса. Подтверждённые при 200% overflow +69/+27
+  px устранены scale-aware selected presentation; host tests покрывают 4
+  locale и русский UI при точном 200%. Safe device runner теперь выполняет
+  PDF smoke 1/1 и backend-free CR-15 smoke 1/1. Ручное прослушивание TalkBack,
+  high contrast и keyboard navigation остаются непроверенными, поэтому общий
+  CR-15 всё ещё partial. Production package до device-прогона отсутствовал;
+  integration package после него удалён. Реализация и Flutter-документация:
+  `3bb1ec3` (`phase5-account-deletion`); backend-код не менялся.
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
   оставшуюся часть CR-13/CR-15/CR-16, acceptance criteria и безопасные
   команды: `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
