@@ -16,7 +16,7 @@ _MALE_LABELS = {"chef", "leiter", "teamleiter", "verkäufer", "herr", "timbur"}
 _FEMALE_LABELS = {"chefin", "leiterin", "verkäuferin", "kundin", "frau"}
 _MALE_NAMES = {"karl", "zarif", "markus", "thomas", "mustafa", "ignacio",
                "tim", "joshua", "simmering"}
-_FEMALE_NAMES = {"michaela", "melanie", "sandra", "amira", "anita",
+_FEMALE_NAMES = {"andrea", "michaela", "melanie", "sandra", "amira", "anita",
                   "alimi", "barthum", "tn"}
 
 

@@ -877,3 +877,17 @@ coverage 2849/4841 (58,85%), analyze чист. Исправленный producti
 дважды холодно запущен на Samsung SM-G985F и открыл Login без crash.
 Backend API, Firebase Auth, UID-изоляция, Free/Premium и backend-код не
 менялись.
+
+---
+
+## TTS: корректный женский голос Andrea (2026-07-16)
+
+Клиент теперь извлекает `Andrea Faber` из «Hallo, hier ist Andrea Faber» и
+передаёт это имя существующим полем `speaker`; новый speaker также обходит
+старый empty-speaker cache key. Backend добавил `andrea` в женский набор
+`_gender`, поэтому `voice_for` выбирает только `FEMALE_VOICES`. Контракт
+`/api/tts`, auth/rate-limit и формат аудио не менялись.
+
+Проверено отдельными client/backend regression tests: Flutter 274/274,
+coverage 58,87%, backend 73/73. Реальное прослушивание остаётся подтвердить
+на авторизованном телефоне с соответствующим курсом.
