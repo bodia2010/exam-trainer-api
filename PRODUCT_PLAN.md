@@ -882,6 +882,9 @@ Backend API, Firebase Auth, UID-изоляция, Free/Premium и backend-код
 
 ## TTS: корректный женский голос Andrea (2026-07-16)
 
+> Исторический промежуточный фикс; заменён staged rollout ниже. Backend
+> больше не содержит списков конкретных имён.
+
 Клиент теперь извлекает `Andrea Faber` из «Hallo, hier ist Andrea Faber» и
 передаёт это имя существующим полем `speaker`; новый speaker также обходит
 старый empty-speaker cache key. Backend добавил `andrea` в женский набор
@@ -891,3 +894,41 @@ Backend API, Firebase Auth, UID-изоляция, Free/Premium и backend-код
 Проверено отдельными client/backend regression tests: Flutter 274/274,
 coverage 58,87%, backend 73/73. Реальное прослушивание остаётся подтвердить
 на авторизованном телефоне с соответствующим курсом.
+
+## TTS: staged voice_gender rollout (2026-07-16)
+
+Backend `/api/tts` теперь принимает необязательное JSON-поле
+`voice_gender: "female" | "male" | "unknown"`. Отсутствующее поле и явное
+`"unknown"` сохраняют совместимость: выбор идёт по явной роли speaker
+(`Frau`/`Herr` и gendered roles), затем по общему пулу. Явные
+`"female"`/`"male"` переопределяют эти эвристики; некорректное значение
+возвращает безопасный `400` JSON без raw exception.
+
+Parser/schema могут добавлять optional `metadata` с теми же gender-значениями:
+`metadata.voice_gender` для монологов/сообщений и
+`metadata.speaker_voice_genders[]` для диалогов с явными speaker labels.
+Старые course JSON без metadata остаются валидными. Span resolution для
+`lesen_teil2`/`hoeren_teil4` и `telefonnotiz` сохраняет только валидные
+metadata-поля и безопасно отбрасывает malformed hints, не меняя legacy
+`{title, content}` / `weitere_informationen: [string]` формы. Backend-списки
+конкретных имён удалены: новые имена обслуживаются parser metadata, а
+сомнительные случаи остаются `unknown` и могут быть исправлены manual override.
+
+Flutter-клиент поддерживает этот staged контракт: `VoiceGender` defensively
+парсит metadata, manual override имеет приоритет над parser hints, затем идёт
+explicit `Frau`/`Herr`, затем `unknown`. TTS cache key переведён на v2 с
+gender-компонентом, чтобы исправленный выбор голоса не переиспользовал старый
+MP3. Parse cache поднят до `v37`. UID-isolated voice preferences хранятся в
+SharedPreferences с latest-wins записью, не создаются без UID и очищаются при
+account deletion. Ключ также включает course ID и устойчивую позицию записи.
+
+UI показывает localized Automatic/Female/Male controls, включая per-speaker
+controls для диалогов. Переключение text/recording/metadata/override в
+`DialogueAudioPlayer` останавливает playback, invalidates stale operations,
+releases typed leases, reparses lines and stays idle (no autoplay). Stable
+recording IDs есть для Telefonnotiz editions, Hören Teil 1 pairs и universal
+Hören text cards; duplicate/empty/Cyrillic labels не сталкиваются. Проверено:
+Flutter 299/299, coverage 61.33%; backend 86/86 + `py_compile`; device PDF
+integration прошёл. Production APK собран, установлен и cold-launched без
+crash. Manual TTS listening после авторизации ещё требуется; backend deploy не
+выполнялся.

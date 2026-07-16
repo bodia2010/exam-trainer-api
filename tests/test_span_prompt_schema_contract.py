@@ -35,6 +35,44 @@ class SpanPromptSchemaContractTest(unittest.TestCase):
         self.assertNotIn('start_line', text_item['properties'])
         self.assertNotIn('missing-text sentinel', PROMPTS['lesen_teil1'])
 
+    def test_optional_voice_metadata_schema_is_backward_compatible(self):
+        for section_type in ['lesen_teil1', 'lesen_teil2', 'hoeren_teil4']:
+            with self.subTest(section_type=section_type):
+                text_item = _text_item_schema(section_type)
+                metadata = text_item['properties']['metadata']
+
+                self.assertNotIn('metadata', text_item['required'])
+                self.assertEqual(
+                    metadata['properties']['voice_gender']['enum'],
+                    ['female', 'male', 'unknown'],
+                )
+                speaker_hint = metadata['properties']['speaker_voice_genders']['items']
+                self.assertEqual(
+                    speaker_hint['properties']['voice_gender']['enum'],
+                    ['female', 'male', 'unknown'],
+                )
+
+    def test_bespoke_audio_schemas_permit_optional_voice_metadata(self):
+        hoeren_pair = (
+            schema_for('hoeren_teil1')['items']['properties']
+            ['question_pairs']['items']
+        )
+        telefon_version = (
+            schema_for('telefonnotiz')['items']['properties']['versions']
+            ['items']
+        )
+
+        self.assertIn('metadata', hoeren_pair['properties'])
+        self.assertNotIn('metadata', hoeren_pair['required'])
+        self.assertIn('metadata', telefon_version['properties'])
+        self.assertNotIn('metadata', telefon_version['required'])
+
+    def test_prompts_constrain_voice_metadata_values(self):
+        self.assertIn('voice_gender', PROMPTS['telefonnotiz'])
+        self.assertIn('female|male|unknown', PROMPTS['telefonnotiz'])
+        self.assertIn('speaker_voice_genders', PROMPTS['hoeren_teil1'])
+        self.assertIn('Allowed gender values are exactly', PROMPTS['hoeren_teil4'])
+
 
 if __name__ == '__main__':
     unittest.main()

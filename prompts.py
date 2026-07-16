@@ -40,18 +40,22 @@ MARKDOWN:
 {markdown}"""
 
 
-_RETYPE_TEXTS_EXAMPLE = '{"title": "<label>", "content": "<full text>"}'
+_VOICE_METADATA_RULE = """- Optional voice metadata for TTS: when a text is a single spoken monologue/message and the source clearly identifies the speaker's gender from a title, role, or name, add "metadata": {"voice_gender": "<female|male|unknown>"}. When a text is a dialogue with explicit speaker labels, add "metadata": {"speaker_voice_genders": [{"speaker": "<exact label>", "voice_gender": "<female|male|unknown>"}]}. Use ONLY these three values; use "unknown" rather than guessing from stereotypes or uncertain names."""
+
+_RETYPE_TEXTS_EXAMPLE = '{"title": "<label>", "content": "<full text>", "metadata": {"voice_gender": "<female|male|unknown>", "speaker_voice_genders": [{"speaker": "<label>", "voice_gender": "<female|male|unknown>"}]}}'
 
 _RETYPE_TEXTS_RULES = """- "texts[].content" and every "options[].text" must be the EXACT wording from the source, copied verbatim (aside from the de-hyphenation rule below) — never summarize, shorten, or paraphrase a transcript/passage/option into your own words. A student preparing for the real exam needs to see precisely what would appear on it. Where a "text" (question stem) isn't printed verbatim in the source and must be phrased to introduce the options, keep it minimal and neutral rather than inventing exam-style phrasing not in the source.
 - HEADINGS: when a line within "texts[].content" is visually set apart from the surrounding prose as its own heading or sub-heading (bold, underlined, or otherwise distinct from body text — e.g. a meeting-minutes agenda item like "TOP 1 Begrüßung und Genehmigung der Tagesordnungspunkte", or a document sub-section title like "Zugangskontrolle und Zeiterfassung"), wrap just that line in double asterisks: "**TOP 1 Begrüßung...**". This is a structural annotation the app renders as bold, not a change to the wording — the text inside the asterisks is still the exact verbatim heading text, nothing more. Never wrap ordinary body prose, individual words for emphasis, or the "title" field this way — only genuine standalone headings inside "content"."""
+_RETYPE_TEXTS_RULES = _RETYPE_TEXTS_RULES + "\n" + _VOICE_METADATA_RULE
 
-_SPAN_TEXTS_EXAMPLE = '{"title": "<label>", "start_line": <int>, "end_line": <int>, "heading_lines": [<int>]}'
+_SPAN_TEXTS_EXAMPLE = '{"title": "<label>", "start_line": <int>, "end_line": <int>, "heading_lines": [<int>], "metadata": {"voice_gender": "<female|male|unknown>", "speaker_voice_genders": [{"speaker": "<label>", "voice_gender": "<female|male|unknown>"}]}}'
 
 _SPAN_TEXTS_RULES = """- Every line below is prefixed with a 5-digit, zero-padded line number and ": ", e.g. "00042: Zugangskontrolle und Zeiterfassung" (that line's number is 42). Use ONLY these prefixes to report a text span — never invent or estimate a line number. Write start_line/end_line/heading_lines as PLAIN integers with NO leading zeros (42, not "00042"). Both start_line and end_line must name existing numbered source lines, and start_line must be less than or equal to end_line. Never use a negative line number except the exact -1/-1 missing-text sentinel defined below.
 - "texts" entries are NOT the passage/transcript text itself. For each text, return "title" plus the inclusive line-number span where THAT text is printed: {"title": "<label>", "start_line": <int>, "end_line": <int>, "heading_lines": [<int>...]}. The server will slice the actual content mechanically from those lines.
 - A text span must cover the whole block of THIS reading passage or THIS audio message/transcript, from its first printed line through its last printed line. Do not include the questions, answer options, answer-key markers, Russian meta-commentary, or page numbers after it.
 - Never merge two different texts into one span. For Hören Teil 4 there are five separate messages, Nummer 36 through Nummer 40; output five separate "texts" entries, one span per Nummer/message.
 - "heading_lines" is optional/null/[] unless a line inside the text span is visually set apart from surrounding prose as its own heading or sub-heading (bold, underlined, or otherwise distinct from body text — e.g. "Zugangskontrolle und Zeiterfassung"). Include ONLY the absolute line numbers of genuine standalone headings. Never include ordinary body prose, individual words for emphasis, or the "title" field itself.
+- Optional voice metadata may be included on each "texts" entry using the same shape as the example. Use "voice_gender" for single-speaker monologues/messages and "speaker_voice_genders" for labelled dialogues. Allowed gender values are exactly "female", "male", or "unknown".
 - If this specific edition genuinely does not print the passage/transcript text at all (only questions/options or an answer key are present), do not invent a transcript and do not point at unrelated text. Return exactly {"title": "(nicht angegeben)", "start_line": -1, "end_line": -1} for that missing text."""
 
 
@@ -255,6 +259,7 @@ A full pair object:
 {
   "pair_audio_url": "<url or null>",
   "dialogue": "<full dialogue text>",
+  "metadata": {"speaker_voice_genders": [{"speaker": "<exact speaker label>", "voice_gender": "<female|male|unknown>"}]},
   "richtig_falsch": {
     "number": <even question number>,
     "statement": "<statement to judge>",
@@ -277,6 +282,7 @@ Rules:
 - pair_audio_url: fill only if separate URL appears before each "Nummer N und N"
 - Determine richtig_falsch.answer and multiple_choice.correct_letter from whatever marks the correct one in the source: "– 100%", "(100%)", a letter written after the item, or similar markers; if genuinely unmarked, decide from the dialogue content instead of leaving it undetermined.
 - "dialogue" and every option "text" must be the EXACT wording from the source, copied verbatim — never summarize, shorten, or paraphrase into your own words. A student preparing for the real exam needs to see precisely what would appear on it.
+- Optional voice metadata: when the dialogue has explicit speaker labels, add "metadata": {"speaker_voice_genders": [{"speaker": "<exact label>", "voice_gender": "<female|male|unknown>"}]}. Use ONLY "female", "male", or "unknown"; use "unknown" rather than guessing from stereotypes or uncertain names.
 - VERSIONS: if the variant appears as a reworked edition ("Новая версия", "Новый вариант от <дата>", "(тест №…)"), output it as a SEPARATE object: same variant_number, distinct "version" label (null for the original). A lone alternative wording of a single question is NOT an edition — keep the answered one.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct edition — output exactly one object per block, in the same order, never merging or skipping a block. A block for a reworked edition often restates only the ONE pair that actually changed (e.g. just "Nummer 24 und 25") — that is normal, not an error; see DEDUPLICATION for how to fill the other two entries.
 - DEDUPLICATION: for a reworked edition (version is not null), any question_pairs entry the block doesn't restate, or restates word-for-word identically to the original variant's (version: null) same-position entry, must be COPIED from that original entry word-for-word — repeat its full pair object, do not invent different content and do not leave it out. Give a pair its own (possibly changed) content only when the edition's block actually contains it. The original variant itself must always contain full objects for all 3 pairs.
@@ -314,6 +320,7 @@ For each variant return:
       "label": "<Старый вариант | Новый вариант | date | empty string>",
       "audio_url": "<url or null>",
       "monologue": "<full spoken text>",
+      "metadata": {"voice_gender": "<female|male|unknown>"},
       "answer": {
         "call_type": "<Beschwerde | Angebot | Buchung | Anfrage>",
         "name": "<caller name>",
@@ -364,6 +371,7 @@ Rules:
 - "– 100%" in header = high confidence, ignore suffix
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block is one distinct edition of a variant, already identified as separate. Group blocks that share the same variant_number under one object, but include EVERY block as its own entry in that object's "versions" list — never merge two blocks into one versions entry and never skip a block, even if two blocks look very similar to each other.
 - "monologue" must be the EXACT wording from the source, copied verbatim — never summarize or shorten it. A student preparing for the real exam needs to see precisely what would appear on it.
+- Optional voice metadata: when the monologue source clearly identifies the caller's gender from a title, role, or name, add "metadata": {"voice_gender": "<female|male|unknown>"}. Use ONLY these three values; use "unknown" rather than guessing from stereotypes or uncertain names.
 - The "answer" block is NOT something to infer from the monologue — it's a separate, already-filled-in answer key printed in the source right after the monologue, structured as its own labeled fields (a call-type heading like "Angebot"/"Buchung"/etc., "Name:", "Telefonnummer:", a "Weitere Informationen:" bullet list, and a "Zu erledigen:" line). Read each field from its own label, verbatim — do not paraphrase, and do not leave any of the five fields empty/omitted just because it takes a second look at the source to find where that specific label appears.
 - Some sources genuinely leave a field blank (e.g. "Telefonnummer:" with nothing after it, dots like "................." in place of a number, or an edition with no monologue transcript printed at all, only its answer key). Never invent a plausible-looking value to fill a genuine gap. Instead write the literal string "(nicht angegeben)" for that field — this is different from simply not finding the label on the page, which means look again. For "weitere_informationen" specifically, if this edition genuinely prints no "Weitere Informationen:" bullets at all, return the single-item list [{"start_line": -1, "end_line": -1}] (the sentinel position) instead of an empty list or a made-up span.
 - Return ONLY a valid JSON array. No markdown wrapper, no explanation.

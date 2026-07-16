@@ -16,6 +16,7 @@ NO_ANSWER_SENTINEL = '(nicht angegeben)'
 
 _LOGGER = logging.getLogger(__name__)
 _INTEGER_STRING_RE = re.compile(r'^[+-]?\d+$')
+_VALID_VOICE_GENDERS = {'female', 'male', 'unknown'}
 
 
 def _warn_invalid(kind: str, reason: str) -> None:
@@ -41,13 +42,78 @@ def _coerce_optional_slash_index(value: Any) -> int | None:
     return _coerce_span_index(value)
 
 
-def _text_item_sentinel() -> dict[str, str]:
+def _text_item_sentinel() -> dict[str, Any]:
     return {'title': NO_ANSWER_SENTINEL, 'content': NO_ANSWER_SENTINEL}
 
 
-def _legacy_text_item(title: Any, content: str) -> dict[str, str]:
+def _legacy_text_item(title: Any, content: str) -> dict[str, Any]:
     safe_title = title if isinstance(title, str) and title else NO_ANSWER_SENTINEL
     return {'title': safe_title, 'content': content or NO_ANSWER_SENTINEL}
+
+
+def _sanitize_metadata_value(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    metadata: dict[str, Any] = {}
+    voice_gender = value.get('voice_gender')
+    if voice_gender in _VALID_VOICE_GENDERS:
+        metadata['voice_gender'] = voice_gender
+
+    raw_speaker_hints = value.get('speaker_voice_genders')
+    if isinstance(raw_speaker_hints, list):
+        speaker_hints = []
+        for hint in raw_speaker_hints:
+            if not isinstance(hint, dict):
+                continue
+            speaker = hint.get('speaker')
+            hint_gender = hint.get('voice_gender')
+            if (
+                    isinstance(speaker, str)
+                    and speaker.strip()
+                    and hint_gender in _VALID_VOICE_GENDERS):
+                speaker_hints.append({
+                    'speaker': speaker.strip(),
+                    'voice_gender': hint_gender,
+                })
+        if speaker_hints:
+            metadata['speaker_voice_genders'] = speaker_hints
+
+    return metadata or None
+
+
+def _copy_metadata(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    metadata = _sanitize_metadata_value(source.get('metadata'))
+    if metadata is not None:
+        target['metadata'] = metadata
+    return target
+
+
+def sanitize_parser_metadata(parsed: Any) -> Any:
+    """Keep only valid optional TTS metadata in a parsed JSON tree.
+
+    This is intentionally tolerant: old cache entries have no metadata,
+    and malformed model output loses only the bad hint instead of making
+    the whole exercise invalid for legacy clients.
+    """
+    if isinstance(parsed, list):
+        for item in parsed:
+            sanitize_parser_metadata(item)
+        return parsed
+    if not isinstance(parsed, dict):
+        return parsed
+
+    if 'metadata' in parsed:
+        metadata = _sanitize_metadata_value(parsed.get('metadata'))
+        if metadata is None:
+            parsed.pop('metadata', None)
+        else:
+            parsed['metadata'] = metadata
+
+    for key, value in list(parsed.items()):
+        if key != 'metadata':
+            sanitize_parser_metadata(value)
+    return parsed
 
 
 def _coerce_heading_lines(text_item: dict[str, Any], start: int, end: int) -> list[int]:
@@ -109,7 +175,7 @@ def resolve_telefonnotiz_spans(parsed: list, markdown: str) -> list:
                     text = ''
                 resolved.append(text or NO_ANSWER_SENTINEL)
             answer['weitere_informationen'] = resolved
-    return parsed
+    return sanitize_parser_metadata(parsed)
 
 
 def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
@@ -122,7 +188,7 @@ def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
         if not isinstance(texts, list):
             continue
 
-        resolved: list[dict[str, str]] = []
+        resolved: list[dict[str, Any]] = []
         for text_item in texts:
             if not isinstance(text_item, dict):
                 _warn_invalid('universal_text', 'invalid_text_item')
@@ -135,25 +201,34 @@ def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
                 end = _coerce_span_index(text_item['end_line'])
             except (KeyError, TypeError, ValueError):
                 _warn_invalid('universal_text', 'invalid_span')
-                resolved.append(_legacy_text_item(title, NO_ANSWER_SENTINEL))
+                resolved.append(_copy_metadata(
+                    text_item,
+                    _legacy_text_item(title, NO_ANSWER_SENTINEL),
+                ))
                 continue
 
             if line_extraction.is_missing_span_sentinel(start, end):
-                resolved.append(_legacy_text_item(title, NO_ANSWER_SENTINEL))
+                resolved.append(_copy_metadata(
+                    text_item,
+                    _legacy_text_item(title, NO_ANSWER_SENTINEL),
+                ))
                 continue
 
             try:
                 line_extraction.validate_inclusive_span(raw_lines, start, end)
             except (TypeError, ValueError):
                 _warn_invalid('universal_text', 'invalid_span')
-                resolved.append(_legacy_text_item(title, NO_ANSWER_SENTINEL))
+                resolved.append(_copy_metadata(
+                    text_item,
+                    _legacy_text_item(title, NO_ANSWER_SENTINEL),
+                ))
                 continue
 
             try:
                 heading_lines = _coerce_heading_lines(text_item, start, end)
             except (TypeError, ValueError):
                 _warn_invalid('universal_text', 'invalid_heading_lines')
-                resolved.append(_text_item_sentinel())
+                resolved.append(_copy_metadata(text_item, _text_item_sentinel()))
                 continue
 
             try:
@@ -166,6 +241,6 @@ def resolve_universal_text_spans(parsed: list, markdown: str) -> list:
             except (TypeError, ValueError):
                 _warn_invalid('universal_text', 'invalid_span')
                 content = ''
-            resolved.append(_legacy_text_item(title, content))
+            resolved.append(_copy_metadata(text_item, _legacy_text_item(title, content)))
         item['texts'] = resolved
-    return parsed
+    return sanitize_parser_metadata(parsed)

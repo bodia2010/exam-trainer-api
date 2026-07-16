@@ -72,11 +72,35 @@ DISCOVER_SCHEMA = {
     },
 }
 
+_VOICE_GENDER = {'type': 'STRING', 'enum': ['female', 'male', 'unknown']}
+
+_SPEAKER_VOICE_GENDER = {
+    'type': 'OBJECT',
+    'properties': {
+        'speaker': {'type': 'STRING'},
+        'voice_gender': _VOICE_GENDER,
+    },
+    'required': ['speaker', 'voice_gender'],
+}
+
+_VOICE_METADATA = {
+    'type': 'OBJECT',
+    'properties': {
+        'voice_gender': _VOICE_GENDER,
+        'speaker_voice_genders': {
+            'type': 'ARRAY',
+            'items': _SPEAKER_VOICE_GENDER,
+            'nullable': True,
+        },
+    },
+}
+
 _TEXT_ITEM = {
     'type': 'OBJECT',
     'properties': {
         'title': {'type': 'STRING'},
         'content': {'type': 'STRING'},
+        'metadata': _VOICE_METADATA,
     },
     'required': ['title', 'content'],
 }
@@ -92,6 +116,7 @@ _TEXT_SPAN_ITEM = {
             'items': {'type': 'INTEGER'},
             'nullable': True,
         },
+        'metadata': _VOICE_METADATA,
     },
     'required': ['title', 'start_line', 'end_line'],
 }
@@ -183,6 +208,7 @@ _HOEREN_TEIL1_PAIR = {
     'properties': {
         'pair_audio_url': {'type': 'STRING', 'nullable': True},
         'dialogue': {'type': 'STRING'},
+        'metadata': _VOICE_METADATA,
         'richtig_falsch': {
             'type': 'OBJECT',
             'properties': {
@@ -306,6 +332,7 @@ TELEFONNOTIZ_SCHEMA = {
                         'label': {'type': 'STRING', 'nullable': True},
                         'audio_url': {'type': 'STRING', 'nullable': True},
                         'monologue': {'type': 'STRING'},
+                        'metadata': _VOICE_METADATA,
                         'answer': _TELEFONNOTIZ_ANSWER,
                     },
                     'required': ['monologue', 'answer'],

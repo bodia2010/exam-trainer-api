@@ -127,6 +127,50 @@ class ResolveTelefonnotizSpansTest(unittest.TestCase):
             'legacy',
         )
 
+    def test_version_metadata_survives_and_invalid_values_are_dropped(self):
+        parsed = [
+            {
+                'versions': [
+                    {
+                        'metadata': {'voice_gender': 'female'},
+                        'answer': {
+                            'weitere_informationen': [
+                                {'start_line': 0, 'end_line': 0},
+                            ],
+                        },
+                    },
+                    {
+                        'metadata': {
+                            'voice_gender': 'feminine',
+                            'speaker_voice_genders': [{'speaker': 'A', 'voice_gender': 'male'}],
+                        },
+                        'answer': {
+                            'weitere_informationen': [
+                                {'start_line': '-1', 'end_line': '-1'},
+                            ],
+                        },
+                    },
+                    {
+                        'metadata': 'bad',
+                        'answer': {
+                            'weitere_informationen': [
+                                {'start_line': '-1', 'end_line': '-1'},
+                            ],
+                        },
+                    },
+                ],
+            }
+        ]
+
+        result = span_resolution.resolve_telefonnotiz_spans(parsed, 'Termin')
+
+        self.assertEqual(result[0]['versions'][0]['metadata'], {'voice_gender': 'female'})
+        self.assertEqual(
+            result[0]['versions'][1]['metadata'],
+            {'speaker_voice_genders': [{'speaker': 'A', 'voice_gender': 'male'}]},
+        )
+        self.assertNotIn('metadata', result[0]['versions'][2])
+
 
 class ResolveUniversalTextSpansTest(unittest.TestCase):
     def test_resolves_valid_spans_to_legacy_title_content_with_heading_strings(self):
@@ -168,6 +212,77 @@ class ResolveUniversalTextSpansTest(unittest.TestCase):
         self.assertEqual(
             result[0]['texts'],
             [{'title': 'Plain', 'content': 'one\ntwo'}],
+        )
+
+    def test_text_metadata_survives_span_resolution(self):
+        parsed = [
+            {
+                'texts': [
+                    {
+                        'title': 'Nummer 36 Andrea',
+                        'start_line': 0,
+                        'end_line': 1,
+                        'metadata': {'voice_gender': 'female'},
+                    },
+                    {
+                        'title': 'Dialog',
+                        'start_line': 2,
+                        'end_line': 2,
+                        'metadata': {
+                            'speaker_voice_genders': [
+                                {'speaker': ' Herr Becker ', 'voice_gender': 'male'},
+                                {'speaker': '', 'voice_gender': 'female'},
+                                {'speaker': 'Frau Keller', 'voice_gender': 'feminine'},
+                            ],
+                        },
+                    },
+                ],
+            }
+        ]
+        markdown = 'Hallo\nAndrea spricht\nHerr Becker: Guten Tag'
+
+        result = span_resolution.resolve_universal_text_spans(parsed, markdown)
+
+        self.assertEqual(
+            result[0]['texts'][0],
+            {
+                'title': 'Nummer 36 Andrea',
+                'content': 'Hallo\nAndrea spricht',
+                'metadata': {'voice_gender': 'female'},
+            },
+        )
+        self.assertEqual(
+            result[0]['texts'][1],
+            {
+                'title': 'Dialog',
+                'content': 'Herr Becker: Guten Tag',
+                'metadata': {
+                    'speaker_voice_genders': [
+                        {'speaker': 'Herr Becker', 'voice_gender': 'male'},
+                    ],
+                },
+            },
+        )
+
+    def test_invalid_text_metadata_degrades_without_breaking_span_resolution(self):
+        parsed = [
+            {
+                'texts': [
+                    {
+                        'title': 'Invalid metadata',
+                        'start_line': 0,
+                        'end_line': 0,
+                        'metadata': {'voice_gender': 'feminine'},
+                    }
+                ],
+            }
+        ]
+
+        result = span_resolution.resolve_universal_text_spans(parsed, 'body')
+
+        self.assertEqual(
+            result[0]['texts'],
+            [{'title': 'Invalid metadata', 'content': 'body'}],
         )
 
     def test_exact_missing_sentinel_keeps_title_and_uses_content_sentinel(self):

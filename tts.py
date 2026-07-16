@@ -12,23 +12,14 @@ import edge_tts
 MALE_VOICES = ["de-DE-FlorianMultilingualNeural", "de-DE-ConradNeural"]
 FEMALE_VOICES = ["de-DE-KatjaNeural", "de-DE-AmalaNeural"]
 
-_MALE_LABELS = {"chef", "leiter", "teamleiter", "verkäufer", "herr", "timbur"}
+_MALE_LABELS = {"chef", "leiter", "teamleiter", "verkäufer", "herr"}
 _FEMALE_LABELS = {"chefin", "leiterin", "verkäuferin", "kundin", "frau"}
-_MALE_NAMES = {"karl", "zarif", "markus", "thomas", "mustafa", "ignacio",
-               "tim", "joshua", "simmering"}
-_FEMALE_NAMES = {"andrea", "michaela", "melanie", "sandra", "amira", "anita",
-                  "alimi", "barthum", "tn"}
-
 
 def _gender(speaker: str) -> str:
     first = speaker.lower().split()[0] if speaker.strip() else ''
-    if first in _MALE_LABELS or first in _MALE_NAMES:
+    if first in _MALE_LABELS:
         return 'male'
-    if first in _FEMALE_LABELS or first in _FEMALE_NAMES:
-        return 'female'
-    if speaker.lower() in _MALE_NAMES:
-        return 'male'
-    if speaker.lower() in _FEMALE_NAMES:
+    if first in _FEMALE_LABELS:
         return 'female'
     return 'unknown'
 
@@ -40,7 +31,12 @@ def _stable_index(s: str, n: int) -> int:
     return int(hashlib.md5(s.encode('utf-8')).hexdigest(), 16) % n
 
 
-def voice_for(speaker: str, text: str = '') -> str:
+def voice_for(speaker: str, text: str = '', voice_gender: str | None = None) -> str:
+    if voice_gender in {'male', 'female'}:
+        pool = {'male': MALE_VOICES, 'female': FEMALE_VOICES}[voice_gender]
+        stable_key = speaker.strip() or voice_gender
+        return pool[_stable_index(stable_key, len(pool))]
+
     speaker = speaker.strip()
     if not speaker:
         # No speaker tag at all (client couldn't detect a narrator name/

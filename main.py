@@ -483,14 +483,6 @@ def parse():
         text = _call_gemini(prompt, section_type, is_premium=premium).strip()
         if text.startswith('```'):
             text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
-        if section_type == 'telefonnotiz':
-            text = json.dumps(
-                span_resolution.resolve_telefonnotiz_spans(json.loads(text), markdown)
-            )
-        if section_type in SPAN_TEXT_SECTION_TYPES:
-            text = json.dumps(
-                span_resolution.resolve_universal_text_spans(json.loads(text), markdown)
-            )
         if section_type == 'discover':
             # The discover prompt's numbered-line input ("00042: ...")
             # sometimes leaked zero-padded numbers straight into the JSON
@@ -505,7 +497,15 @@ def parse():
             # should make this unreachable going forward — kept as a
             # harmless fallback rather than removed outright.
             text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
-        return jsonify(json.loads(text))
+            return jsonify(json.loads(text))
+
+        parsed = json.loads(text)
+        if section_type == 'telefonnotiz':
+            parsed = span_resolution.resolve_telefonnotiz_spans(parsed, markdown)
+        if section_type in SPAN_TEXT_SECTION_TYPES:
+            parsed = span_resolution.resolve_universal_text_spans(parsed, markdown)
+        parsed = span_resolution.sanitize_parser_metadata(parsed)
+        return jsonify(parsed)
     except GeminiError as e:
         return jsonify({'error': str(e)}), e.status_code
     except json.JSONDecodeError as e:
@@ -567,12 +567,17 @@ def tts_endpoint():
     body = request.get_json(force=True)
     text = (body.get('text') or '').strip()
     speaker = body.get('speaker') or ''
+    voice_gender = body.get('voice_gender') if 'voice_gender' in body else None
+    if 'voice_gender' in body and voice_gender not in {'female', 'male', 'unknown'}:
+        return jsonify({
+            'error': 'voice_gender must be one of: female, male, unknown',
+        }), 400
     if not text:
         return jsonify({'error': 'text is required'}), 400
     if len(text) > 2000:
         return jsonify({'error': 'text too long (max 2000 chars per line)'}), 400
 
-    voice = tts.voice_for(speaker, text)
+    voice = tts.voice_for(speaker, text, voice_gender)
     try:
         audio_bytes = asyncio.run(tts.synthesize(text, voice))
         return Response(audio_bytes, mimetype='audio/mpeg')
