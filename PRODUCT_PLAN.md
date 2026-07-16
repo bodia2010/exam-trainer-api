@@ -1028,8 +1028,20 @@ LLM audit skipped because no key was exported in the local curation shell.
 Receipt и generated course находятся вне репозитория в
 `/home/igor/Downloads/exam-trainer-curation/`; перед Redis write receipt
 должен быть проверен `inject_curated.py --course` с явными `v36 → v37`.
-В этой сессии `vercel env pull --environment=production` вернул пустые значения
-для `UPSTASH_REDIS_REST_URL` и `UPSTASH_REDIS_REST_TOKEN` (имена переменных
-видны, секретные значения недоступны), поэтому Redis dry-run/apply и
-production deploy намеренно не выполнялись. Это текущий release blocker, а не
-успешная миграция.
+На первом локальном запуске `vercel env pull --environment=production`
+вернул пустые masked values, поэтому миграция была временно остановлена. После
+получения REST credentials из Upstash Console выполнены dry-run и apply с
+read-back verification; Redis target v37 теперь опубликован.
+
+### Release completion (2026-07-16)
+
+Кодовый commit `b20b9f8` запушен в `phase3-2-promptfoo-gate`. Production Redis
+получил metadata-aware `v30.v37|doc|a758e73f...` (12 section types, 142 items,
+30 voice metadata nodes; read-back SHA совпал с checklist receipt). Старый v36
+не перезаписывался.
+
+Staged Vercel deployment `dpl_HKLsh24MUykL8GjwXYdA3cGJ7xpo` собран в Ready,
+проверен на уникальном URL через protection bypass и promoted на
+`exam-trainer-api.vercel.app`. Production smoke: OPTIONS для convert/parse/cache/tts
+вернули 200 JSON; unauthenticated `/api/me` и `/api/cache` вернули безопасный
+401 JSON. Credentials после миграции удалены из временного локального файла.
