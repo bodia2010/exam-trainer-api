@@ -1,7 +1,7 @@
 # Exam Trainer: описание программы, архитектура и актуальный план
 
 > **Единственный актуальный рабочий план и набор проектных инструкций.**
-> Обновлено 2026-07-15. Устаревшие сессионные планы и завершённые отчёты
+> Обновлено 2026-07-16. Устаревшие сессионные планы и завершённые отчёты
 > удалены; их история остаётся в Git и локальной Hermes memory, а не
 > конкурирует с этим файлом.
 
@@ -58,16 +58,15 @@
   `flutter test -d <device> integration_test/...` запрещён: стандартный
   teardown Flutter может удалить base production package и его локальные
   данные даже при flavored APK.
-- Текущий проверенный baseline (после ТРЕТЬЕГО раунда независимой
+- Текущий проверенный baseline (после ЧЕТВЁРТОГО раунда независимой
   перепроверки P2, 2026-07-16): backend — 72 unit tests (не изменялся);
-  Flutter — 261 тест (было 255 после второго раунда, 248 после первого,
+  Flutter — 263 тест (было 261 после третьего раунда, 255 после второго, 248 после первого,
   233 до перепроверки, 191 до P2), включая host/device smoke основного
   PDF → курс → упражнение flow.
   `flutter analyze` проходит без замечаний; `dart format
   --set-exit-if-changed .` чист; `flutter test --coverage` —
-  2510/4786 строк (52,44%); production
-  flavor release APK не пересобиралась ни в одном раунде перепроверки
-  (только клиентский код + тесты, без изменения release-конфигурации).
+  2521/4799 строк (52,53%); production flavor release APK успешно
+  пересобрана локально после четвёртого раунда (не опубликована).
 - P1 (CR-07 cloud sync outbox, CR-09/CR-10 device gate policy, CR-11 typed
   API errors, CR-12 Android privacy) закрыт 2026-07-15. Backend force-device
   и course-delete сохраняют `{ok:bool}`, но теперь подтверждают только
@@ -161,6 +160,21 @@
   закрыт с доказанной гарантией возвращаемого пути** после трёх раундов
   независимой перепроверки. Итоговый Flutter-тест-baseline: 261 тест,
   coverage 52,44%.
+- **Четвёртый раунд независимой перепроверки (2026-07-16) устранил два
+  ownership-дефекта третьего решения CR-14.** Строковый `releasePaths()`
+  позволял одному владельцу повторным release уменьшить refcount другого
+  владельца того же пути; `clearCache()` мог физически удалить общий файл,
+  пока другой плеер всё ещё держал pin. `ensureAudio()` теперь возвращает
+  уникальный `TtsAudioLease` с идемпотентным на уровне владельца `release()`
+  и `path`; единственный production caller `DialogueAudioPlayer` мигрирован
+  на typed lease. Cache hit/commit/release eviction/clear сериализованы общей
+  filesystem transaction queue, а `clearCache` сохраняет чужие активные
+  lease. Добавлены 2 детерминированные regression-проверки; полный Flutter
+  baseline — 263 теста. Backend API и формат кэша не менялись. CR-14 закрыт
+  после четырёх раундов. Общий device smoke PDF → курс → упражнение прошёл
+  1/1 на Samsung SM-S938B с сохранением production package; выделенный
+  real-device TTS stress/error smoke всё ещё отсутствует. Backend gate —
+  72/72 + `py_compile` во временном venv.
 - Актуальная точка передачи следующему AI-агенту, включая состояние Git,
   оставшуюся часть CR-13/CR-15/CR-16, acceptance criteria и безопасные
   команды: `/home/igor/project/exam_trainer/NEXT_AGENT_PROMPT.md`.
