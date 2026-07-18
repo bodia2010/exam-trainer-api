@@ -13,6 +13,7 @@ identically for both apps.
 import datetime
 import json
 import os
+from dataclasses import dataclass
 
 import requests
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -173,6 +174,43 @@ def force_register_device(uid: str, device_id: str, device_name: str) -> bool:
 _MAX_COURSE_JSON_BYTES = 900_000
 
 
+@dataclass(frozen=True)
+class CourseRecord:
+    """One course document, including delete-wins sync metadata.
+
+    ``revision == 0`` represents a legacy active document written before
+    CR-07.  A deleted document deliberately remains in Firestore as a
+    tombstone; deleting the document itself would let a stale offline upload
+    recreate it.
+    """
+
+    course_id: str
+    revision: int
+    deleted: bool
+    updated_at: str | None
+    course_json: str | None
+
+
+@dataclass(frozen=True)
+class CourseMutationResult:
+    """Outcome of a compare-and-set course mutation.
+
+    ``bool(result)`` keeps the old internal bool API convenient for callers
+    which only care whether delivery succeeded, while the endpoint can expose
+    the revision/conflict distinction to new clients.
+    """
+
+    status: str  # success | conflict | unavailable | rejected
+    revision: int | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == 'success'
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
 def _courses_url(uid: str, course_id: str | None = None) -> str:
     base = (
         f'https://firestore.googleapis.com/v1/projects/{_PROJECT_ID}'
@@ -181,56 +219,268 @@ def _courses_url(uid: str, course_id: str | None = None) -> str:
     return f'{base}/{course_id}' if course_id else base
 
 
-def save_course(uid: str, course_id: str, course_json: str) -> bool:
-    if not _credentials or len(course_json.encode('utf-8')) > _MAX_COURSE_JSON_BYTES:
-        return False
+def _course_id_from_document(doc: dict) -> str | None:
+    name = doc.get('name')
+    if not isinstance(name, str) or not name.rsplit('/', 1)[-1]:
+        return None
+    return name.rsplit('/', 1)[-1]
+
+
+def _int_field(fields: dict, name: str, default: int = 0) -> int:
     try:
-        headers = {'Authorization': f'Bearer {_access_token()}'}
-        resp = requests.patch(
+        value = fields.get(name, {}).get('integerValue', default)
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _record_from_document(doc: dict) -> CourseRecord | None:
+    course_id = _course_id_from_document(doc)
+    if not course_id:
+        return None
+    fields = doc.get('fields', {})
+    if not isinstance(fields, dict):
+        return None
+    course_json = fields.get('json', {}).get('stringValue')
+    if not isinstance(course_json, str):
+        course_json = None
+    updated_at = fields.get('updatedAt', {}).get('timestampValue')
+    if not isinstance(updated_at, str):
+        updated_at = doc.get('updateTime') if isinstance(doc.get('updateTime'), str) else None
+    return CourseRecord(
+        course_id=course_id,
+        revision=_int_field(fields, 'revision'),
+        deleted=fields.get('deleted', {}).get('booleanValue') is True,
+        updated_at=updated_at,
+        course_json=course_json,
+    )
+
+
+def _get_course_document(uid: str, course_id: str, headers: dict):
+    """Returns ``(document, None)`` / ``(None, 'missing')`` / unavailable.
+
+    Fetching the document before every mutation supplies Firestore's
+    ``updateTime`` for the REST precondition.  This avoids a read-then-write
+    race without adding the heavy firebase-admin dependency.
+    """
+    try:
+        response = requests.get(
+            _courses_url(uid, course_id), headers=headers, timeout=10)
+    except Exception:
+        return None, 'unavailable'
+    if response.status_code == 404:
+        return None, 'missing'
+    if response.status_code != 200:
+        return None, 'unavailable'
+    try:
+        document = response.json()
+    except ValueError:
+        return None, 'unavailable'
+    if not isinstance(document, dict) or not document.get('updateTime'):
+        return None, 'unavailable'
+    return document, None
+
+
+def _patch_course(
+        uid: str,
+        course_id: str,
+        headers: dict,
+        fields: dict,
+        *,
+        update_time: str | None = None,
+        create_only: bool = False,
+        update_mask: tuple[str, ...] = ()) -> str:
+    """Applies a Firestore document PATCH with a real CAS precondition."""
+    params: list[tuple[str, str]] = []
+    if create_only:
+        params.append(('currentDocument.exists', 'false'))
+    elif update_time:
+        params.append(('currentDocument.updateTime', update_time))
+    else:
+        return 'unavailable'
+    for field in update_mask:
+        params.append(('updateMask.fieldPaths', field))
+    try:
+        response = requests.patch(
             _courses_url(uid, course_id),
             headers=headers,
-            json={'fields': {
-                'json': {'stringValue': course_json},
-                'updatedAt': {'timestampValue': _now_iso()},
-            }},
+            params=params,
+            json={'fields': fields},
             timeout=15,
         )
-        return resp.status_code == 200
     except Exception:
-        return False
+        return 'unavailable'
+    if response.status_code == 200:
+        return 'success'
+    # Firestore represents a failed currentDocument precondition as ABORTED
+    # (409).  Accept 412 too for compatible proxies/emulators.
+    if response.status_code in (409, 412):
+        return 'conflict'
+    return 'unavailable'
+
+
+def _active_course_fields(course_json: str, revision: int) -> dict:
+    return {
+        'json': {'stringValue': course_json},
+        'deleted': {'booleanValue': False},
+        'revision': {'integerValue': str(revision)},
+        'updatedAt': {'timestampValue': _now_iso()},
+    }
+
+
+def _tombstone_fields(revision: int) -> dict:
+    return {
+        'deleted': {'booleanValue': True},
+        'revision': {'integerValue': str(revision)},
+        'updatedAt': {'timestampValue': _now_iso()},
+    }
+
+
+def save_course(
+        uid: str,
+        course_id: str,
+        course_json: str,
+        expected_revision: int | None = None,
+) -> CourseMutationResult:
+    """Saves a course only if it has not been deleted or changed meanwhile.
+
+    Legacy documents with no metadata are active at revision 0.  A tombstone
+    is never converted back into an active course, even for legacy clients
+    which do not send ``expected_revision``.
+    """
+    if (not _credentials or
+            len(course_json.encode('utf-8')) > _MAX_COURSE_JSON_BYTES):
+        return CourseMutationResult('rejected')
+    try:
+        headers = {'Authorization': f'Bearer {_access_token()}'}
+    except Exception:
+        return CourseMutationResult('unavailable')
+
+    document, error = _get_course_document(uid, course_id, headers)
+    if error == 'unavailable':
+        return CourseMutationResult('unavailable')
+    if error == 'missing':
+        if expected_revision is not None and expected_revision != 0:
+            return CourseMutationResult('conflict')
+        revision = 1
+        status = _patch_course(
+            uid, course_id, headers, _active_course_fields(course_json, revision),
+            create_only=True,
+        )
+        return CourseMutationResult(status, revision if status == 'success' else None)
+
+    record = _record_from_document(document)
+    if record is None:
+        return CourseMutationResult('unavailable')
+    if record.deleted:
+        # Delete-wins: a stale device must explicitly import a new course ID,
+        # never revive a prior one.
+        return CourseMutationResult('conflict')
+    if expected_revision is not None and expected_revision != record.revision:
+        return CourseMutationResult('conflict')
+    revision = record.revision + 1
+    status = _patch_course(
+        uid, course_id, headers, _active_course_fields(course_json, revision),
+        update_time=document['updateTime'],
+        update_mask=('json', 'deleted', 'revision', 'updatedAt'),
+    )
+    return CourseMutationResult(status, revision if status == 'success' else None)
+
+
+def list_course_records(uid: str) -> list[CourseRecord] | None:
+    """Returns all active and deleted course records, or None on failure.
+
+    Tombstones are intentionally included so another device can remove an old
+    local copy instead of uploading it back to the cloud.
+    """
+    if not _credentials:
+        return None
+    try:
+        headers = {'Authorization': f'Bearer {_access_token()}'}
+        response = requests.get(_courses_url(uid), headers=headers, timeout=15)
+    except Exception:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        documents = response.json().get('documents', [])
+    except (ValueError, AttributeError):
+        return None
+    result = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        record = _record_from_document(document)
+        if record is not None:
+            result.append(record)
+    return result
 
 
 def list_courses(uid: str) -> list[str]:
     """Returns the raw JSON string of every course stored for this
     account. Malformed/unreadable docs are skipped rather than failing
     the whole sync."""
-    if not _credentials:
+    records = list_course_records(uid)
+    if records is None:
         return []
-    try:
-        headers = {'Authorization': f'Bearer {_access_token()}'}
-        resp = requests.get(_courses_url(uid), headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return []
-        result = []
-        for doc in resp.json().get('documents', []):
-            value = doc.get('fields', {}).get('json', {}).get('stringValue')
-            if value:
-                result.append(value)
-        return result
-    except Exception:
-        return []
+    return [record.course_json for record in records
+            if not record.deleted and record.course_json]
 
 
-def delete_course(uid: str, course_id: str) -> bool:
+def delete_course(
+        uid: str,
+        course_id: str,
+        expected_revision: int | None = None,
+) -> CourseMutationResult:
+    """Writes a permanent tombstone instead of deleting a course document.
+
+    Delete is intentionally stronger than a stale expected revision: once the
+    caller asks to delete, an active remote version is replaced by a
+    tombstone.  A concurrent write may make one CAS attempt conflict; retrying
+    once lets normal delete-vs-upload races still converge to delete-wins.
+    """
     if not _credentials:
-        return False
+        return CourseMutationResult('unavailable')
     try:
         headers = {'Authorization': f'Bearer {_access_token()}'}
-        response = requests.delete(
-            _courses_url(uid, course_id), headers=headers, timeout=10)
-        return response.status_code in (200, 404)
     except Exception:
-        return False
+        return CourseMutationResult('unavailable')
+
+    # ``expected_revision`` is parsed by the API and deliberately not used as
+    # a rejection condition here: an old offline deletion must not resurrect
+    # data merely because another device edited the course first.
+    del expected_revision
+    for _ in range(2):
+        document, error = _get_course_document(uid, course_id, headers)
+        if error == 'unavailable':
+            return CourseMutationResult('unavailable')
+        if error == 'missing':
+            revision = 1
+            status = _patch_course(
+                uid, course_id, headers, _tombstone_fields(revision),
+                create_only=True,
+            )
+            if status != 'conflict':
+                return CourseMutationResult(
+                    status, revision if status == 'success' else None)
+            continue
+
+        record = _record_from_document(document)
+        if record is None:
+            return CourseMutationResult('unavailable')
+        if record.deleted:
+            return CourseMutationResult('success', record.revision)
+        revision = record.revision + 1
+        status = _patch_course(
+            uid, course_id, headers, _tombstone_fields(revision),
+            update_time=document['updateTime'],
+            # Including json in the update mask deletes the old payload.
+            update_mask=('json', 'deleted', 'revision', 'updatedAt'),
+        )
+        if status != 'conflict':
+            return CourseMutationResult(
+                status, revision if status == 'success' else None)
+    return CourseMutationResult('conflict')
 
 
 # --- Account deletion ---------------------------------------------------

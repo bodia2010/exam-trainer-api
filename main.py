@@ -18,6 +18,7 @@ import firestore_client
 import tts
 
 app = Flask(__name__)
+_COURSE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
 
 # Model choice lives in generation_config.py next to the rest of the
 # generation settings — single source of truth shared with the promptfoo
@@ -76,6 +77,39 @@ def _cache_key_type(key: str) -> str:
 def _authenticate():
     """Returns the caller's Firebase UID, or None if unauthenticated."""
     return firebase_auth.authenticate_request(request.headers)
+
+
+def _expected_revision(value):
+    """Parses the additive sync CAS token without accepting bool as an int."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError
+    try:
+        revision = int(value)
+    except (TypeError, ValueError):
+        raise ValueError from None
+    if revision < 0 or str(value).strip() != str(revision):
+        raise ValueError
+    return revision
+
+
+def _valid_course_id(value) -> bool:
+    return isinstance(value, str) and _COURSE_ID_RE.fullmatch(value) is not None
+
+
+def _mutation_json(result, *, field: str):
+    """Normalizes new typed results and old bool mocks during rollout."""
+    if isinstance(result, bool):
+        return {field: result}, 200 if result else 503
+    if result.status == 'success':
+        payload = {field: True}
+        if result.revision is not None:
+            payload['revision'] = result.revision
+        return payload, 200
+    if result.status == 'conflict':
+        return {field: False, 'conflict': True}, 409
+    return {field: False}, 503
 
 
 def _incr_with_ttl(key: str, ttl_seconds: int) -> int | None:
@@ -148,7 +182,7 @@ def _global_discover_cap_ok() -> bool:
 @app.after_request
 def _cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     return response
 
@@ -208,21 +242,52 @@ def courses():
         return jsonify({'error': 'Unauthorized'}), 401
 
     if request.method == 'GET':
-        raw_courses = firestore_client.list_courses(uid)
+        records = firestore_client.list_course_records(uid)
+        if records is None:
+            # Unlike the old fail-empty response, callers can now preserve
+            # their last known local library and retry instead of treating an
+            # outage as a remote deletion.
+            return jsonify({'error': 'Course sync unavailable'}), 503
         parsed = []
-        for raw in raw_courses:
+        sync = []
+        for record in records:
+            if not _valid_course_id(record.course_id):
+                continue
+            sync.append({
+                'id': record.course_id,
+                'revision': record.revision,
+                'deleted': record.deleted,
+                'updatedAt': record.updated_at,
+            })
+            if record.deleted or not record.course_json:
+                continue
             try:
-                parsed.append(json.loads(raw))
+                course = json.loads(record.course_json)
             except json.JSONDecodeError:
                 continue
-        return jsonify({'courses': parsed})
+            # Historic/corrupt Firestore data must not smuggle a different or
+            # path-like id into a client's local filename namespace.
+            if (not isinstance(course, dict) or
+                    course.get('id') != record.course_id or
+                    not _valid_course_id(course.get('id'))):
+                continue
+            parsed.append(course)
+        return jsonify({'courses': parsed, 'sync': sync})
 
     body = request.get_json(force=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'JSON object is required'}), 400
     course = body.get('course')
-    if not isinstance(course, dict) or not course.get('id'):
+    if not isinstance(course, dict) or not _valid_course_id(course.get('id')):
         return jsonify({'error': 'course with an id is required'}), 400
-    saved = firestore_client.save_course(uid, course['id'], json.dumps(course))
-    return jsonify({'saved': saved})
+    try:
+        expected_revision = _expected_revision(body.get('expectedRevision'))
+    except ValueError:
+        return jsonify({'error': 'expectedRevision must be a non-negative integer'}), 400
+    result = firestore_client.save_course(
+        uid, course['id'], json.dumps(course), expected_revision)
+    payload, status = _mutation_json(result, field='saved')
+    return jsonify(payload), status
 
 
 @app.route('/api/courses/<course_id>', methods=['DELETE', 'OPTIONS'])
@@ -232,8 +297,23 @@ def course_delete(course_id):
     uid = _authenticate()
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
-    ok = firestore_client.delete_course(uid, course_id)
-    return jsonify({'ok': ok}), 200 if ok else 503
+    if not _valid_course_id(course_id):
+        return jsonify({'error': 'invalid course id'}), 400
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return jsonify({'error': 'JSON object is required'}), 400
+    raw_revision = request.args.get('expectedRevision')
+    if raw_revision is None:
+        raw_revision = body.get('expectedRevision')
+    try:
+        expected_revision = _expected_revision(raw_revision)
+    except ValueError:
+        return jsonify({'error': 'expectedRevision must be a non-negative integer'}), 400
+    result = firestore_client.delete_course(uid, course_id, expected_revision)
+    payload, status = _mutation_json(result, field='ok')
+    return jsonify(payload), status
 
 
 @app.route('/api/account', methods=['DELETE', 'OPTIONS'])
