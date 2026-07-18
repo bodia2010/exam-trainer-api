@@ -1117,3 +1117,10 @@ package удалены.
 Запуск: `tool/run_android_saf_picker_smoke.sh <device-id>`, затем оператор вручную
 выбирает `Downloads/ExamTrainerSafFixture/exam-trainer-saf-valid.pdf`. Это действие
 не автоматизируется координатами: внешний DocumentsUI зависит от OEM и локали.
+
+### Flutter CR-13 exercise lifecycle follow-up — 2026-07-18
+
+Шесть exercise-экранов получили общий generation/dispose guard для повторного
+использования route с новым course/index. Backend API, course/cache contract и
+production deployment не менялись; добавлена клиентская widget-регрессия на
+устаревший delayed loader.
