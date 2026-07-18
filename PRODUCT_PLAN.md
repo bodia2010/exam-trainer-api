@@ -1124,3 +1124,14 @@ package удалены.
 использования route с новым course/index. Backend API, course/cache contract и
 production deployment не менялись; добавлена клиентская widget-регрессия на
 устаревший delayed loader.
+
+### Flutter CR-07 UID switch hardening — 2026-07-18
+
+Клиентский `CourseStorage.loadAll()` больше не возвращает уже прочитанные курсы
+прежнего UID, если Firebase session меняется во время local/remote await или
+error fallback. Backend API, Firestore schema, outbox и deployment не менялись.
+
+Межустройственный delete-vs-stale-upload остаётся открытым продуктовым
+решением. Предварительно подтверждён минимальный совместимый путь: additive
+sync metadata, server revision, persistent tombstone и 409 для stale write;
+реализацию не начинать до фиксации conflict UX/policy.
