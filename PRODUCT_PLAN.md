@@ -209,6 +209,11 @@
 менялись. Оставшиеся направления: ручной TalkBack/high-contrast audit,
 следующие небольшие CR-13 slices и отдельная миграция file_picker.
 
+Post-bump Android gate выполнен на Samsung SM-G985F: safe runner PDF 1/1 и
+Sprachbausteine accessibility 1/1, production package сохранён, integration
+package удалён; свежий production APK установлен поверх существующего. Ручной
+TalkBack/high-contrast/keyboard audit остаётся незакрытым.
+
 ### 1. Назначение продукта
 
 Exam Trainer — Android-first Flutter-приложение для подготовки к языковому
