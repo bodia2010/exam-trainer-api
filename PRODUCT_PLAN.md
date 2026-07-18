@@ -199,6 +199,16 @@
 
 ## Детальное описание программы
 
+### Flutter follow-up status — 18 июля 2026
+
+Клиентский CR-13 получил минимальный срез для FavoritesScreen: controller
+с terminal error/retry состояниями и stale/dispose guards; прямой FutureBuilder
+больше не оставляет вечный spinner. По CR-16 безопасно обновлён
+`device_info_plus` до 12.4.0. Версия 13.x отложена из-за конфликта `win32` с
+намеренно закреплённым `file_picker 10.3.10`; backend API и код backend не
+менялись. Оставшиеся направления: ручной TalkBack/high-contrast audit,
+следующие небольшие CR-13 slices и отдельная миграция file_picker.
+
 ### 1. Назначение продукта
 
 Exam Trainer — Android-first Flutter-приложение для подготовки к языковому
