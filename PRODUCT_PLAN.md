@@ -209,6 +209,11 @@
 менялись. Оставшиеся направления: ручной TalkBack/high-contrast audit,
 следующие небольшие CR-13 slices и отдельная миграция file_picker.
 
+Следующий CR-13 срез `CourseScreen` также закрыт на Flutter-клиенте:
+`CourseScreenController` добавляет stale/dispose guards и reload при смене
+course id, сохраняя terminal error/not-found/retry UI. Backend API и storage
+контракт не менялись.
+
 Post-bump Android gate выполнен на Samsung SM-G985F: safe runner PDF 1/1 и
 Sprachbausteine accessibility 1/1, production package сохранён, integration
 package удалён; свежий production APK установлен поверх существующего. Ручной
