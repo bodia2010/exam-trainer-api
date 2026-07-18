@@ -1082,3 +1082,9 @@ Staged Vercel deployment `dpl_HKLsh24MUykL8GjwXYdA3cGJ7xpo` собран в Read
 `SectionListController`; backend API, Redis-формат и production deployment не
 изменялись. Проверены terminal error/not-found/empty states и защита от stale
 операций/dispose; backend regression suite остаётся без изменений.
+
+### Flutter CR-13 practice exam / CR-16 cleanup — 2026-07-18
+
+Клиентский Probe-Prüfung loader переведён на controller с terminal error/retry и
+lifecycle guards; `google_fonts` удалён как неиспользуемая зависимость. Backend API,
+cache contract и production deployment не менялись.
