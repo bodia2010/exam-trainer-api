@@ -1075,3 +1075,10 @@ Staged Vercel deployment `dpl_HKLsh24MUykL8GjwXYdA3cGJ7xpo` собран в Read
 `exam-trainer-api.vercel.app`. Production smoke: OPTIONS для convert/parse/cache/tts
 вернули 200 JSON; unauthenticated `/api/me` и `/api/cache` вернули безопасный
 401 JSON. Credentials после миграции удалены из временного локального файла.
+
+### Flutter CR-13 SectionListScreen — 2026-07-18
+
+Клиентский `SectionListScreen` переведён на lifecycle-safe
+`SectionListController`; backend API, Redis-формат и production deployment не
+изменялись. Проверены terminal error/not-found/empty states и защита от stale
+операций/dispose; backend regression suite остаётся без изменений.
