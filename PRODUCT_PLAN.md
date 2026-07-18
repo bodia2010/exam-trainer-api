@@ -1088,3 +1088,6 @@ Staged Vercel deployment `dpl_HKLsh24MUykL8GjwXYdA3cGJ7xpo` собран в Read
 Клиентский Probe-Prüfung loader переведён на controller с terminal error/retry и
 lifecycle guards; `google_fonts` удалён как неиспользуемая зависимость. Backend API,
 cache contract и production deployment не менялись.
+
+Device-limit UI error/lifecycle hardening выполнен только в Flutter-клиенте;
+backend device registration contract не изменён.
