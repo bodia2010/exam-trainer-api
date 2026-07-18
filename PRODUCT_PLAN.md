@@ -214,6 +214,12 @@ Sprachbausteine accessibility 1/1, production package сохранён, integrat
 package удалён; свежий production APK установлен поверх существующего. Ручной
 TalkBack/high-contrast/keyboard audit остаётся незакрытым.
 
+Пользователь затем вручную проверил TalkBack на production APK на Samsung
+SM-G985F и подтвердил корректную работу. CR-15 закрыт для целевой Android
+touch/TalkBack-матрицы вместе с 48 dp, Semantics и 200% device/host gates.
+High contrast и внешняя аппаратная клавиатура остаются optional расширением,
+так как отдельно не проверялись; backend не менялся.
+
 ### 1. Назначение продукта
 
 Exam Trainer — Android-first Flutter-приложение для подготовки к языковому
