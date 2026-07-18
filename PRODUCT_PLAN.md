@@ -1092,6 +1092,13 @@ cache contract и production deployment не менялись.
 Device-limit UI error/lifecycle hardening выполнен только в Flutter-клиенте;
 backend device registration contract не изменён.
 
+### Flutter CR-16 file_picker verification — 2026-07-18
+
+Upgrade до 11.0.2 откатан после воспроизводимого clean Android release failure
+на границе AGP9 built-in Kotlin/legacy KGP. Клиент остаётся на точном 10.3.10;
+stable device-info 13 также несовместим с picker 11 по `win32 ^6` против `^5`.
+Backend API, upload contract и production deployment не менялись.
+
 ### Flutter CR-16 go_router upgrade — 2026-07-18
 
 Клиент обновил `go_router` `13.2.5 → 17.3.0`; backend API, auth contract и
