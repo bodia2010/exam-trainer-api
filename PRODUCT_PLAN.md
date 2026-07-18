@@ -220,6 +220,10 @@ touch/TalkBack-матрицы вместе с 48 dp, Semantics и 200% device/ho
 High contrast и внешняя аппаратная клавиатура остаются optional расширением,
 так как отдельно не проверялись; backend не менялся.
 
+Следующий CR-13 срез также закрыт на Flutter-клиенте: общий FavoriteButton
+получил controller с terminal error/retry, stale/dispose guards и блокировкой
+двойного нажатия. Backend API, UID-ключи и формат favorites не менялись.
+
 ### 1. Назначение продукта
 
 Exam Trainer — Android-first Flutter-приложение для подготовки к языковому
