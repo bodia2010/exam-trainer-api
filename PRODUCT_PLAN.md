@@ -1162,3 +1162,20 @@ POST/DELETE conflict и старый клиент на production/staging URL.
 coverage 55.08%, clean production APK собран. Device smoke не запускался,
 поскольку ADB не видел подключённого устройства. Production deployment всё ещё
 не выполнен и требует отдельного разрешения/проверки.
+
+### CR-07 production rollout — 2026-07-18
+
+Commit `2b553e6` развёрнут отдельной production-сборкой Vercel
+`dpl_24YhsW6Qewyu3d6AHpDWQL29AWBV` и aliased на
+`https://exam-trainer-api.vercel.app`; deployment имеет target Production,
+status Ready и видит все требуемые encrypted Firebase/Upstash/Gemini variables.
+Safe smoke: OPTIONS `/api/courses` и `/api/convert` — 200, CORS содержит DELETE;
+неавторизованные GET `/api/courses`, DELETE `/api/courses/smoke-course` и GET
+`/api/me` — безопасные 401 JSON.
+
+Перед правильной production-сборкой preview без Preview environment variables
+был кратко promoted, но сразу заменён fresh `vercel deploy --prod` из чистого
+HEAD; пользовательские endpoints вызывались только без авторизации, поэтому
+Firestore/Redis/user data не изменялись. Authenticated POST→DELETE→stale POST
+device smoke ещё требуется через обновлённый клиент или выделенный test account;
+не использовать реальные пользовательские курсы как одноразовый fixture.
