@@ -1104,3 +1104,16 @@ Backend API, upload contract и production deployment не менялись.
 Клиент обновил `go_router` `13.2.5 → 17.3.0`; backend API, auth contract и
 production deployment не менялись. Router regression tests покрывают auth/public
 redirects и nested course paths.
+
+### Flutter Android SAF PDF picker smoke — 2026-07-18
+
+В клиент добавлен отдельный operator-assisted device test настоящего Android
+DocumentsUI/file picker. После валидации выбранного fixture используется offline
+fake import service; backend endpoints, Firebase Auth, Redis/cache contract и
+production deployment не менялись и тестом не вызываются. Gate прошёл 1/1 на
+Samsung SM-G985F, production package был сохранён, временные fixture и integration
+package удалены.
+
+Запуск: `tool/run_android_saf_picker_smoke.sh <device-id>`, затем оператор вручную
+выбирает `Downloads/ExamTrainerSafFixture/exam-trainer-saf-valid.pdf`. Это действие
+не автоматизируется координатами: внешний DocumentsUI зависит от OEM и локали.
