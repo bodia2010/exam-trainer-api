@@ -1091,3 +1091,9 @@ cache contract и production deployment не менялись.
 
 Device-limit UI error/lifecycle hardening выполнен только в Flutter-клиенте;
 backend device registration contract не изменён.
+
+### Flutter CR-16 go_router upgrade — 2026-07-18
+
+Клиент обновил `go_router` `13.2.5 → 17.3.0`; backend API, auth contract и
+production deployment не менялись. Router regression tests покрывают auth/public
+redirects и nested course paths.
