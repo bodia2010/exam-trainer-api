@@ -1,7 +1,7 @@
 # Exam Trainer: описание программы, архитектура и актуальный план
 
 > **Единственный актуальный рабочий план и набор проектных инструкций.**
-> Обновлено 2026-07-16. Устаревшие сессионные планы и завершённые отчёты
+> Обновлено 2026-07-19. Устаревшие сессионные планы и завершённые отчёты
 > удалены; их история остаётся в Git и локальной Hermes memory, а не
 > конкурирует с этим файлом.
 
@@ -13,7 +13,8 @@
 - Production API: `https://exam-trainer-api.vercel.app`. Клиент по умолчанию
   использует production; `10.0.2.2:3000` допустим только как явный
   `--dart-define=API_BASE_URL=...` для Android-эмулятора.
-- Текущие версии кэша клиента: discovery `v30`, parse `v36`; исходный baseline
+- Production использует discovery `v30`, parse `v37`; в коде подготовлен, но
+  ещё не развёрнут dual-format rollout parse `v38`; исходный baseline
   `1.0.0+10`. APK/AAB
   `/home/igor/Downloads/exam-trainer-v41-release.*` являются архивными
   pre-P0-артефактами и **не должны загружаться в Play Console**. Они были
@@ -1240,6 +1241,46 @@ release risk для раздела 6. Следующая задача — пол
 способом (без backdoor) и прогнать DTO/answer-key/verbatim/diff audits для
 208-страничной версии, прежде чем считать full-PDF gate из раздела 6 полностью
 верифицированным в production.
+
+### Premium semantic remediation v38 — код готов, rollout ожидает новый кэш
+
+Три ошибки answer key воспроизведены по сохранённому fixture. Backend добавляет
+provenance `[[PDF_CORRECT:...]]` из физической жёлтой подсветки PDF и исправляет
+ответ только при уникальном option text в parse response. Для Sprachbausteine
+Teil 2 есть отдельный fallback по явному inline-ключу `N (a - text)`: только для
+этого section type, при единогласии edition chunks и exact letter/text. Любой
+конфликт означает no-op. На fixture исправлены Beschwerde v5 Q19,
+Sprachbausteine Teil 2 v1 Q55 и Hören Teil 3 v5 Q34. Одинаковый option text в
+разных вопросах больше не может вызвать детерминированную mutation.
+
+Rollout обратно совместим: `/api/convert` и `/api/parse` включают v38-семантику
+только при точном заголовке `X-Exam-Trainer-Answer-Markers: v38`; без него
+conversion/parse остаются legacy-v37. Flutter v38 отправляет заголовок на обоих
+convert upload paths и parse. CORS разрешает заголовок. `inject_curated.py`
+больше не имеет v36→v37 defaults: source/target marker formats и версии
+задаются явно, а Redis-ключи вычисляются по двум независимым digest.
+Legacy converter сверён с сохранённым production `source.md`: exact match,
+522901 chars, SHA-256 `fc18d533fbef810bcaaef9bd65241b03895d50e5beabee1be6b2393682a3a86f`.
+
+Offline semantic gate работает без сети и fail-closed отклоняет empty course,
+missing/duplicate identity и payload drift. Metadata-флаг не разрешает менять
+`audio_url`/`pair_audio_url`. Реальный live-vs-curated результат ожидаемо FAIL:
+21 exact, 8 metadata-only, 86 payload-changed, 28 fresh-only, 27 trusted-only.
+Live 143 JSON нельзя публиковать/сливать. Curated updater также отклоняет
+malformed identity до сравнения.
+
+Безопасный порядок: deploy dual-format backend; доказать прежний legacy digest;
+вычислить v38 markdown/digest; dry-run и read-back проверенного curated 142-item
+course только в `v30.v38|doc|<new-digest>`; прогнать offline/checklist gate;
+лишь затем build/install v38 APK и Premium/Free cache smoke. Сейчас Redis,
+production backend и APK не изменены; paid Gemini reparse не запускался.
+
+Финальный локальный gate: backend 217 tests + 54 subtests, Flutter 352/352,
+coverage 55.25%, format/analyze/compileall/diff-check clean. Android integration
+на SM-S938B: PDF smoke 1/1 и Sprachbausteine accessibility 1/1; integration
+package удалён, установленный production package сохранён. Clean-built release
+APK SHA-256 `11e684a949942f9747e48314f6b793d263b8177eb9e1a7eebb6cfd73f00c7153`,
+но его не устанавливать/публиковать до v38 curated cache и versionCode bump.
 
 ### Premium full-PDF semantic audit — 2026-07-19
 

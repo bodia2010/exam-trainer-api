@@ -46,6 +46,8 @@ class CuratedCacheKeyTest(unittest.TestCase):
     def test_invalid_section_shape_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'must be a list'):
             inject_curated.validate_sections({'lesen_teil2': {}})
+        with self.assertRaisesRegex(ValueError, 'at least one item'):
+            inject_curated.validate_sections({'lesen_teil2': []})
 
     def test_pdf_conversion_fails_closed_without_marker_dependency(self):
         real_import = __import__
@@ -57,20 +59,63 @@ class CuratedCacheKeyTest(unittest.TestCase):
 
         with mock.patch('builtins.__import__', side_effect=import_without_fitz):
             with self.assertRaisesRegex(RuntimeError, 'PyMuPDF is required'):
-                inject_curated.convert_pdf_to_markdown(Path('/unused.pdf'))
+                inject_curated.convert_pdf_to_markdown(Path('/unused.pdf'), 'v38')
 
     def test_legacy_source_key_can_be_supplied_when_conversion_hash_changed(self):
         args = inject_curated.parse_args([
             '--pdf', '/tmp/source.pdf',
+            '--source-marker-format', 'legacy',
+            '--target-marker-format', 'v38',
+            '--discover-version', 'v30',
+            '--source-parse-version', 'v37',
+            '--target-parse-version', 'v38',
             '--source-key', 'v30.v32|doc|legacy-hash',
         ])
         self.assertEqual('v30.v32|doc|legacy-hash', args.source_key)
 
-    def test_defaults_follow_current_voice_metadata_cache_rollout(self):
-        args = inject_curated.parse_args(['--pdf', '/tmp/source.pdf'])
+    def test_versions_and_marker_format_are_required(self):
+        with self.assertRaises(SystemExit):
+            inject_curated.parse_args(['--pdf', '/tmp/source.pdf'])
 
-        self.assertEqual('v36', args.source_parse_version)
-        self.assertEqual('v37', args.target_parse_version)
+    def test_source_and_target_formats_compute_independent_cache_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / 'source.pdf'
+            pdf.write_bytes(b'pdf bytes')
+            converted = {'legacy': 'legacy markdown', 'v38': 'marked markdown'}
+            with mock.patch.object(
+                inject_curated,
+                'convert_pdf_to_markdown',
+                side_effect=lambda _path, marker_format: converted[marker_format],
+            ), mock.patch.dict('os.environ', {}, clear=True), mock.patch(
+                'builtins.print',
+            ) as printed:
+                result = inject_curated.main([
+                    '--pdf', str(pdf),
+                    '--source-marker-format', 'legacy',
+                    '--target-marker-format', 'v38',
+                    '--discover-version', 'v30',
+                    '--source-parse-version', 'v37',
+                    '--target-parse-version', 'v38',
+                ])
+
+        output = '\n'.join(str(call.args[0]) for call in printed.call_args_list)
+        self.assertEqual(0, result)
+        self.assertIn(
+            inject_curated.document_key(
+                'v30',
+                'v37',
+                inject_curated.document_digest(converted['legacy']),
+            ),
+            output,
+        )
+        self.assertIn(
+            inject_curated.document_key(
+                'v30',
+                'v38',
+                inject_curated.document_digest(converted['v38']),
+            ),
+            output,
+        )
 
     def test_course_apply_requires_matching_checklist_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -86,6 +131,11 @@ class CuratedCacheKeyTest(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, '--checklist-receipt, --checklist-report'):
                     inject_curated.main([
                         '--pdf', str(pdf), '--course', str(course), '--apply',
+                        '--source-marker-format', 'legacy',
+                        '--target-marker-format', 'v38',
+                        '--discover-version', 'v30',
+                        '--source-parse-version', 'v37',
+                        '--target-parse-version', 'v38',
                     ])
 
             value = inject_curated.serialized_sections(course)
@@ -113,6 +163,11 @@ class CuratedCacheKeyTest(unittest.TestCase):
                     with self.assertRaisesRegex(SystemExit, 'Redis credentials are required'):
                         inject_curated.main([
                             '--pdf', str(pdf), '--course', str(course), '--apply',
+                            '--source-marker-format', 'legacy',
+                            '--target-marker-format', 'v38',
+                            '--discover-version', 'v30',
+                            '--source-parse-version', 'v37',
+                            '--target-parse-version', 'v38',
                             '--checklist-receipt', str(receipt_path),
                             '--checklist-report', str(report_path),
                             '--checklist-source-md', str(source_md),

@@ -9,8 +9,10 @@ explicit ``--apply`` flag and is verified by reading the target back.
 
 Examples::
 
-    python3 tools/inject_curated.py --pdf /path/to/source.pdf
-    python3 tools/inject_curated.py --pdf /path/to/source.pdf --apply
+    python3 tools/inject_curated.py --pdf /path/to/source.pdf \
+        --source-marker-format legacy --target-marker-format v38 \
+        --discover-version v30 \
+        --source-parse-version v37 --target-parse-version v38
     python3 tools/inject_curated.py --pdf /path/to/source.pdf \
         --course /path/to/course.json \
         --checklist-receipt /path/to/checklist_receipt.json \
@@ -40,22 +42,23 @@ import pdfminer.high_level
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from answer_markers import _inject_answer_markers  # noqa: E402
+from answer_markers import (  # noqa: E402
+    _inject_answer_markers,
+    _inject_legacy_answer_markers,
+)
 from tools.curation_receipt import verify_receipt  # noqa: E402
 
 
-DEFAULT_DISCOVER_VERSION = 'v30'
-DEFAULT_SOURCE_PARSE_VERSION = 'v36'
-DEFAULT_TARGET_PARSE_VERSION = 'v37'
-
-
-def convert_pdf_to_markdown(pdf_path: Path) -> str:
+def convert_pdf_to_markdown(pdf_path: Path, marker_format: str) -> str:
     """Mirror production ``/api/convert`` byte for byte.
 
     Keep these three operations in sync with ``main.convert``: pdfminer
     extraction, MarkItDown-compatible whitespace normalization, then answer
     marker injection from the PDF's highlight/underline annotations.
     """
+    if marker_format not in {'legacy', 'v38'}:
+        raise ValueError(f'unsupported marker format: {marker_format}')
+
     # answer_markers intentionally fails open in the user-facing conversion
     # route so one optional enhancement cannot make PDF import unavailable.
     # A cache migration must do the opposite: silently omitting markers would
@@ -71,7 +74,11 @@ def convert_pdf_to_markdown(pdf_path: Path) -> str:
         raw_text = pdfminer.high_level.extract_text(pdf_file)
     text = '\n'.join(line.rstrip() for line in re.split(r'\r?\n', raw_text))
     text = re.sub(r'\n{3,}', '\n\n', text)
-    return _inject_answer_markers(str(pdf_path), text)
+    return (
+        _inject_legacy_answer_markers(str(pdf_path), text, strict=True)
+        if marker_format == 'legacy'
+        else _inject_answer_markers(str(pdf_path), text, strict=True)
+    )
 
 
 def document_digest(markdown: str) -> str:
@@ -95,6 +102,7 @@ def validate_sections(value: object) -> dict:
     sections = _sections(value)
     if not sections:
         raise ValueError('sections must not be empty')
+    item_count = 0
     for section_type, items in sections.items():
         if not isinstance(section_type, str) or not section_type:
             raise ValueError('every section key must be a non-empty string')
@@ -102,6 +110,9 @@ def validate_sections(value: object) -> dict:
             raise ValueError(f'{section_type}: section value must be a list')
         if any(not isinstance(item, dict) for item in items):
             raise ValueError(f'{section_type}: every item must be an object')
+        item_count += len(items)
+    if item_count == 0:
+        raise ValueError('sections must contain at least one item')
     return sections
 
 
@@ -190,9 +201,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pdf', required=True, type=Path)
     parser.add_argument('--course', type=Path, help='optional course JSON; otherwise copy source Redis value')
-    parser.add_argument('--discover-version', default=DEFAULT_DISCOVER_VERSION)
-    parser.add_argument('--source-parse-version', default=DEFAULT_SOURCE_PARSE_VERSION)
-    parser.add_argument('--target-parse-version', default=DEFAULT_TARGET_PARSE_VERSION)
+    parser.add_argument('--source-marker-format', required=True, choices=('legacy', 'v38'))
+    parser.add_argument('--target-marker-format', required=True, choices=('legacy', 'v38'))
+    parser.add_argument('--discover-version', required=True)
+    parser.add_argument('--source-parse-version', required=True)
+    parser.add_argument('--target-parse-version', required=True)
     parser.add_argument(
         '--source-key',
         help='exact legacy Redis key when the production conversion hash changed',
@@ -221,13 +234,21 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f'PDF sha256 mismatch: expected {args.expected_pdf_sha256}, got {pdf_hash}')
 
-    markdown = convert_pdf_to_markdown(args.pdf)
-    digest = document_digest(markdown)
+    source_markdown = convert_pdf_to_markdown(args.pdf, args.source_marker_format)
+    target_markdown = (
+        source_markdown
+        if args.target_marker_format == args.source_marker_format
+        else convert_pdf_to_markdown(args.pdf, args.target_marker_format)
+    )
+    source_digest = document_digest(source_markdown)
+    target_digest = document_digest(target_markdown)
     source_key = args.source_key or document_key(
-        args.discover_version, args.source_parse_version, digest)
-    target_key = document_key(args.discover_version, args.target_parse_version, digest)
+        args.discover_version, args.source_parse_version, source_digest)
+    target_key = document_key(
+        args.discover_version, args.target_parse_version, target_digest)
     print(f'pdf_sha256: {pdf_hash}')
-    print(f'markdown_chars: {len(markdown)}')
+    print(f'source_markdown_chars: {len(source_markdown)}')
+    print(f'target_markdown_chars: {len(target_markdown)}')
     print(f'source_key: {source_key}')
     print(f'target_key: {target_key}')
 

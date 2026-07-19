@@ -67,8 +67,66 @@ def _item_identity(section_type: str, item: dict) -> tuple:
     identity so two DIFFERENT editions of the same variant_number aren't
     collapsed into one."""
     variant = item.get('variant_number')
-    version = item.get('version')
+    if isinstance(variant, bool) or not isinstance(variant, int):
+        raise ValueError(
+            f'invalid identity in section_type={section_type!r}: '
+            'variant_number must be an integer')
+    raw_version = item.get('version')
+    if raw_version is not None and not isinstance(raw_version, str):
+        raise ValueError(
+            f'invalid identity in section_type={section_type!r}, '
+            f'variant_number={variant!r}: version must be a string or null')
+    version = _normalized_version(raw_version)
     return (section_type, variant, version)
+
+
+def _normalized_version(value: object) -> str:
+    """Returns the comparison form used for a variant's optional edition.
+
+    LLM output has historically varied only in casing or surrounding
+    whitespace for the same printed edition label.  Treat those forms as one
+    identity so a curation diff cannot silently overwrite either one.
+    This intentionally does *not* attempt semantic label equivalence (for
+    example, joining ``150321`` and ``150321, 150301``): that would hide a
+    potentially real edition or parsing error from review.
+    """
+    return value.strip().casefold() if isinstance(value, str) else ''
+
+
+def _index_by_identity(sections: dict, *, course_name: str) -> dict[tuple, dict]:
+    """Indexes course items, rejecting ambiguous identities before diffing.
+
+    A dict assignment used to overwrite the first duplicate silently.  That
+    could make a malformed generated course look partially reused and omit a
+    review item.  Both the prior curated course and the freshly parsed course
+    must therefore be unambiguous under the exact comparison identity.
+    """
+    if not isinstance(sections, dict):
+        raise ValueError(f'{course_name} course sections must be an object')
+    indexed: dict[tuple, dict] = {}
+    for section_type, items in sections.items():
+        if not isinstance(section_type, str) or not section_type:
+            raise ValueError(f'{course_name} course has an invalid section type')
+        if not isinstance(items, list):
+            raise ValueError(f'{course_name} course section {section_type!r} must be a list')
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f'{course_name} course section {section_type!r} item '
+                    f'{item_index} must be an object')
+            identity = _item_identity(section_type, item)
+            if identity in indexed:
+                _, variant, version = identity
+                version_label = version or '<original>'
+                raise ValueError(
+                    f'duplicate identity in {course_name} course: '
+                    f'section_type={section_type!r}, '
+                    f'variant_number={variant!r}, version={version_label!r}'
+                )
+            indexed[identity] = item
+    if not indexed:
+        raise ValueError(f'{course_name} course must contain at least one item')
+    return indexed
 
 
 def _content_hash(item: dict) -> str:
@@ -82,13 +140,17 @@ def _content_hash(item: dict) -> str:
 def diff_courses(old_sections: dict, new_sections: dict):
     """Returns (reused, new_or_changed) — both lists of
     (section_type, item) tuples from new_sections."""
-    old_by_identity: dict[tuple, dict] = {}
-    for section_type, items in old_sections.items():
-        if not isinstance(items, list):
-            continue
-        for item in items:
-            if isinstance(item, dict):
-                old_by_identity[_item_identity(section_type, item)] = item
+    old_by_identity = _index_by_identity(old_sections, course_name='old')
+    # Validate the whole new course before calculating its diff.  Otherwise a
+    # duplicate found after earlier items were classified could leave callers
+    # with a misleading partial report if this function is reused directly.
+    new_by_identity = _index_by_identity(new_sections, course_name='new')
+    removed = set(old_by_identity) - set(new_by_identity)
+    if removed:
+        first = sorted(removed, key=lambda value: (value[0], value[1], value[2]))[0]
+        raise ValueError(
+            f'new course is missing {len(removed)} old identity/identities; '
+            f'first={first!r}')
 
     reused = []
     changed = []

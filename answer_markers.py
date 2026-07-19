@@ -1,8 +1,11 @@
-"""answer_markers.py — inject the PDF's own yellow-highlight answer marking
-into the MarkItDown-converted markdown, as a textual "– 100%" marker, so the
-existing prompts.py rule ("Correct answers are marked with '– 100%', '(100%)',
-a letter written after the item, or similar markers") picks them up for
-free — no prompt change needed.
+"""answer_markers.py — preserve the PDF's own yellow-highlight answer keys.
+
+The source document's physical yellow highlight is more reliable than text
+such as ``– 100%``: flattened columns and later corrections can put a textual
+marker beside the wrong option.  Conversion therefore adds an explicit,
+machine-readable ``[[PDF_CORRECT:<normalised option text>]]`` provenance
+marker.  The parser prompt can use it, and the server deterministically repairs
+a returned answer when exactly one of that question's options matches it.
 
 Why this exists (PRODUCT_PLAN.md 2.3, step 2): the source PDF marks every
 correct answer with a yellow highlight (a filled rect, fill color (1,1,0))
@@ -55,12 +58,15 @@ _OPTION_RE = re.compile(r'^\s*([a-f])\)\s*(.+)$', re.DOTALL)
 _YELLOW = (1.0, 1.0, 0.0)
 _MIN_HIGHLIGHT_HEIGHT = 5  # points; thinner filled rects are underlines
 
-# Marker forms the parse prompt already recognizes (prompts.py, "Correct
-# answers are marked with '– 100%', '(100%)', a letter written after the
-# item, or similar markers") — used to detect a line/span that's ALREADY
-# marked, so we never double the marker on sections (e.g. lesen_teil1) that
-# print it in the source text itself.
-_MARKER_RE = re.compile(r'[-–—]\s*100\s*%|\(\s*100\s*%\s*\)')
+# A physical PDF highlight is represented separately from the source's own
+# textual ``– 100%`` labels.  The latter can belong to another column or a
+# later correction, so it must never suppress this authoritative provenance.
+_PDF_CORRECT_PREFIX = '[[PDF_CORRECT:'
+_PDF_CORRECT_RE = re.compile(r'\[\[PDF_CORRECT:\s*([^\]\r\n]+?)\s*\]\]')
+_LEGACY_MARKER_RE = re.compile(r'[-–—]\s*100\s*%|\(\s*100\s*%\s*\)')
+_INLINE_ANSWER_RE = re.compile(
+    r'(?<!\d)(\d{1,3})\s*\(\s*([a-fA-F])\s*[-–—]\s*([^\)\r\n]+?)\s*\)'
+)
 
 # Below this many normalized characters, an option's text is too short/
 # generic (e.g. a bare "Ja." or "Nein.") to safely locate in the markdown
@@ -189,14 +195,234 @@ class SourceIndex:
 
 
 # ---------------------------------------------------------------------------
-# Injection — new logic tying the two halves above together.
+# Injection and deterministic post-parse repair.
 # ---------------------------------------------------------------------------
 
-def _inject_answer_markers(pdf_path: str, markdown: str) -> str:
+
+def _pdf_correct_marker(normalized_option_text: str) -> str:
+    return f'{_PDF_CORRECT_PREFIX}{normalized_option_text}]]'
+
+
+def authoritative_option_texts(markdown: str) -> set[str]:
+    """Return valid option texts marked by the PDF's physical highlight.
+
+    A malformed/too-short marker is deliberately ignored.  This makes a bad
+    conversion fail open to the model result rather than guessing a key from a
+    partial technical annotation.
+    """
+    return {
+        normalized
+        for raw in _PDF_CORRECT_RE.findall(markdown)
+        if len(normalized := _normalize(raw)) >= _MIN_MATCH_LEN
+    }
+
+
+def repair_answers_from_pdf_markers(parsed: object, markdown: str) -> int:
+    """Correct choice answers only where one option has PDF provenance.
+
+    The API response shape is intentionally unchanged: this mutates only an
+    existing ``answer`` field in universal-schema ``questions``.  If marker
+    matching is absent, malformed, ambiguous, or the model returned a shape
+    outside that contract, the value is left untouched.
+    """
+    marked_texts = authoritative_option_texts(markdown)
+    if not marked_texts or not isinstance(parsed, list):
+        return 0
+
+    # A text-only marker has no question/edition identifier.  It is safe for
+    # deterministic repair only when that normalized option text occurs in
+    # exactly one returned question.  The prompt may still use colocated
+    # markers in ambiguous cases, but the server must not mutate another
+    # question merely because it happens to reuse the same wording.
+    option_occurrences: dict[str, int] = defaultdict(int)
+    for item in parsed:
+        if not isinstance(item, dict) or not isinstance(item.get('questions'), list):
+            continue
+        for question in item['questions']:
+            if not isinstance(question, dict) or not isinstance(question.get('options'), list):
+                continue
+            seen_in_question: set[str] = set()
+            for option in question['options']:
+                if not isinstance(option, dict) or not isinstance(option.get('text'), str):
+                    continue
+                normalized = _normalize(option['text'])
+                if normalized and normalized not in seen_in_question:
+                    option_occurrences[normalized] += 1
+                    seen_in_question.add(normalized)
+
+    repaired = 0
+    for item in parsed:
+        if not isinstance(item, dict) or not isinstance(item.get('questions'), list):
+            continue
+        for question in item['questions']:
+            if not isinstance(question, dict) or not isinstance(question.get('options'), list):
+                continue
+            matches: list[str] = []
+            for option in question['options']:
+                if not isinstance(option, dict):
+                    continue
+                letter = option.get('letter')
+                text = option.get('text')
+                if not isinstance(letter, str) or not isinstance(text, str):
+                    continue
+                normalized = _normalize(text)
+                if normalized in marked_texts and option_occurrences[normalized] == 1:
+                    matches.append(letter)
+            if len(matches) == 1 and question.get('answer') != matches[0]:
+                question['answer'] = matches[0]
+                repaired += 1
+    return repaired
+
+
+def repair_sprachbausteine_inline_answers(parsed: object, markdown: str) -> int:
+    """Apply explicit Teil-2 inline keys only when every edition agrees.
+
+    Sprachbausteine Teil 2 embeds keys in its source text as
+    ``55 (a - Mittlerweile befinden)``.  This fallback is intentionally
+    called only by that section's endpoint path.  A question is repairable
+    when each chunk contains at most one key for its number, all chunks that
+    mention the number agree on the exact letter/text pair, and the returned
+    question contains that same option.  Any conflict or malformed shape is
+    a no-op.
+    """
+    if not isinstance(parsed, list):
+        return 0
+
+    per_number: dict[int, set[tuple[str, str]]] = defaultdict(set)
+    conflicted_numbers: set[int] = set()
+    for chunk in markdown.split('<<<ITEM>>>'):
+        chunk_matches: dict[int, list[tuple[str, str]]] = defaultdict(list)
+        for raw_number, raw_letter, raw_text in _INLINE_ANSWER_RE.findall(chunk):
+            normalized = _normalize(raw_text)
+            if len(normalized) < _MIN_MATCH_LEN:
+                continue
+            chunk_matches[int(raw_number)].append((raw_letter.lower(), normalized))
+        for number, matches in chunk_matches.items():
+            if len(matches) != 1:
+                conflicted_numbers.add(number)
+                continue
+            per_number[number].add(matches[0])
+
+    authoritative = {
+        number: next(iter(keys))
+        for number, keys in per_number.items()
+        if number not in conflicted_numbers and len(keys) == 1
+    }
+    if not authoritative:
+        return 0
+
+    repaired = 0
+    for item in parsed:
+        questions = item.get('questions') if isinstance(item, dict) else None
+        if not isinstance(questions, list):
+            continue
+        number_counts: dict[int, int] = defaultdict(int)
+        for question in questions:
+            if isinstance(question, dict) and isinstance(question.get('number'), int):
+                number_counts[question['number']] += 1
+        for question in questions:
+            if not isinstance(question, dict):
+                continue
+            number = question.get('number')
+            if not isinstance(number, int) or number_counts[number] != 1:
+                continue
+            key = authoritative.get(number)
+            options = question.get('options')
+            if key is None or not isinstance(options, list):
+                continue
+            expected_letter, expected_text = key
+            matches = [
+                option
+                for option in options
+                if isinstance(option, dict)
+                and option.get('letter') == expected_letter
+                and isinstance(option.get('text'), str)
+                and _normalize(option['text']) == expected_text
+            ]
+            if len(matches) == 1 and question.get('answer') != expected_letter:
+                question['answer'] = expected_letter
+                repaired += 1
+    return repaired
+
+
+def strip_pdf_correct_markers(value: object) -> object:
+    """Remove technical provenance if Gemini echoed it into a JSON field."""
+    if isinstance(value, str):
+        cleaned = _PDF_CORRECT_RE.sub('', value)
+        if cleaned == value:
+            return value
+        return re.sub(r'[ \t]{2,}', ' ', cleaned).strip()
+    if isinstance(value, list):
+        return [strip_pdf_correct_markers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: strip_pdf_correct_markers(item) for key, item in value.items()}
+    return value
+
+
+def _inject_legacy_answer_markers(
+    pdf_path: str,
+    markdown: str,
+    *,
+    strict: bool = False,
+) -> str:
+    """Reproduce the deployed v37 ``– 100%`` conversion byte for byte.
+
+    Do not tighten this historical matching algorithm: its exact output is
+    part of the legacy document-cache digest contract.  Safety improvements
+    belong in the opt-in v38 format below.
+    """
+    try:
+        marks = highlighted_options(pdf_path)
+    except Exception as error:
+        if strict:
+            raise RuntimeError('legacy answer-marker extraction failed') from error
+        print(f'ANSWER_MARKER_ERROR extract {type(error).__name__}: {error}')
+        return markdown
+    if not marks:
+        return markdown
+
+    idx = SourceIndex(markdown)
+    lines = idx.source_lines
+    injected = 0
+    for norm_text, hits in marks.items():
+        if len(norm_text) < _MIN_MATCH_LEN:
+            continue
+        budget = len(hits)
+        marked_here = 0
+        search_from = 0
+        while marked_here < budget:
+            pos = idx.blob.find(norm_text, search_from)
+            if pos == -1:
+                break
+            end = pos + len(norm_text)
+            search_from = pos + 1
+            l0 = idx.line_for_offset(pos)
+            l1 = idx.line_for_offset(max(pos, end - 1))
+            if not _OPTION_RE.match(lines[l0].strip()):
+                continue
+            span_text = '\n'.join(lines[l0:l1 + 1])
+            if _LEGACY_MARKER_RE.search(span_text):
+                continue
+            lines[l1] = lines[l1].rstrip() + ' – 100%'
+            injected += 1
+            marked_here += 1
+    if injected:
+        print(
+            f'ANSWER_MARKERS injected={injected} '
+            f'distinct_highlighted_options={len(marks)}'
+        )
+    return '\n'.join(lines)
+
+def _inject_answer_markers(
+    pdf_path: str,
+    markdown: str,
+    *,
+    strict: bool = False,
+) -> str:
     """Find every yellow-highlighted option in the PDF at `pdf_path` and, for
     each one that can be located in `markdown` on a genuine option-shaped
-    line ("a) ...", "b) ...", ...) that doesn't already carry a "– 100%" /
-    "(100%)" style marker, append " – 100%" to that markdown line.
+    line ("a) ...", "b) ...", ...), append an authoritative provenance
+    marker carrying its exact normalized option text.
 
     Best-effort by design: PDF text extraction and MarkItDown's markdown
     are different representations of the same document, so not every
@@ -209,6 +435,8 @@ def _inject_answer_markers(pdf_path: str, markdown: str) -> str:
     try:
         marks = highlighted_options(pdf_path)
     except Exception as e:
+        if strict:
+            raise RuntimeError('v38 answer-marker extraction failed') from e
         print(f'ANSWER_MARKER_ERROR extract {type(e).__name__}: {e}')
         return markdown
 
@@ -229,9 +457,9 @@ def _inject_answer_markers(pdf_path: str, markdown: str) -> str:
         # text coincidentally matching an unrelated line elsewhere in the
         # document and getting over-marked.
         budget = len(hits)
-        marked_here = 0
+        candidates: list[tuple[int, int]] = []
         search_from = 0
-        while marked_here < budget:
+        while True:
             pos = idx.blob.find(norm_text, search_from)
             if pos == -1:
                 break
@@ -245,13 +473,28 @@ def _inject_answer_markers(pdf_path: str, markdown: str) -> str:
             # mistaken for an answer option.
             if not _OPTION_RE.match(lines[l0].strip()):
                 continue
+            candidates.append((l0, l1))
+
+        # A source option repeated on several genuine option lines cannot be
+        # safely matched back to only one physical highlight with our
+        # text-only bridge.  Leave all of them untagged rather than risking
+        # a deterministic but wrong repair.  Matching counts are safe: one
+        # highlight per candidate, ordered as in the source document.
+        if len(candidates) != budget:
+            continue
+
+        for l0, l1 in candidates:
+            marker = _pdf_correct_marker(norm_text)
             span_text = '\n'.join(lines[l0:l1 + 1])
-            if _MARKER_RE.search(span_text):
-                continue  # already marked (e.g. lesen_teil1 prints "(100%)"
-                          # in the source itself) — never double it
-            lines[l1] = lines[l1].rstrip() + ' – 100%'
+            if marker in span_text:
+                continue
+            # Do NOT use a generic "already has – 100%" guard here.  In a
+            # two-column PDF extraction that marker can belong to the second
+            # column; in a corrected exercise it can explicitly contradict
+            # the physical highlight.  The provenance marker is distinct and
+            # safe to append even in both cases.
+            lines[l1] = lines[l1].rstrip() + f' {marker}'
             injected += 1
-            marked_here += 1
 
     if injected:
         print(f'ANSWER_MARKERS injected={injected} distinct_highlighted_options={len(marks)}')

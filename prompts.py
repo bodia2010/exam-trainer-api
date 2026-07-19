@@ -25,7 +25,8 @@ For each variant return a JSON object:
 
 Common rules:
 - Use only the question types the section description above specifies; option_pool is [] unless it says otherwise
-- Correct answers are marked with "– 100%", "(100%)", a letter written after the item, or similar markers
+- ``[[PDF_CORRECT: <option text>]]`` is an authoritative key extracted from the PDF's physical yellow highlight. If exactly one option of a question has that exact marker text, use that option's letter even when another textual "– 100%" appears nearby. Never copy this technical marker into JSON fields.
+- Correct answers can otherwise be marked with "– 100%", "(100%)", a letter written after the item, or similar markers. These textual marks are secondary to ``PDF_CORRECT`` because flattened columns and later corrections can place them beside another option.
 - VERSIONS: the same variant often appears several times — the original plus reworked editions marked "Новая версия", "Новый вариант", a date, or "(тест №…)", where the rework covers MULTIPLE questions. Output EACH complete edition as its OWN object: same variant_number, but a distinct "version" label ("Neue Version 08.2024", "Test 150321", …; null for the original). Every edition must be self-contained — if it does not repeat the reading text or option pool, copy them from the original variant into it. Do NOT mix questions of different editions in one object.
 - A label like "Новый вариант от <date>" or "Варианты ответов от <date>" placed right after ONE SINGLE already-numbered question, giving that ONE question new a)/b)/c) options, is NOT an edition — it's a later correction to that one question, and the whole variant stays ONE object. Between the two option blocks for that question number, use whichever one has a clearly marked "– 100%"/correct answer; if one block has an incomplete option (a blank option, or one ending in "?"), it is not usable — use the other block. Never output two objects, and never two competing answers for the same question number, over a single-question correction like this.
 - SEGMENTATION: the input is pre-split into blocks separated by a line containing only <<<ITEM>>>. Each block was already identified as one distinct, complete variant or edition — output exactly one object per block, in the same order. Never merge two blocks into one object and never skip a block, even if two blocks look very similar to each other.
@@ -222,7 +223,7 @@ topic = the subject line (e.g. Putzdienst, Tischlampe).
 Variants start with "Sprachbausteine Teil 2 (вариант №".
 The letter shows answers inline like "52 (b - eine Bestellung)" — replace the WHOLE thing with a [52]-style marker, including the answer text itself. Never leave the answer's own words also present as plain text right after the marker.
 - texts: one entry, title = the letter subject, content = the letter with [52]...[57] markers
-- questions 52-57: type "choice", text = "[<number>]", options = the printed a) b) c) lists, answer = the letter shown inline in the letter"""),
+- questions 52-57: type "choice", text = "[<number>]", options = the printed a) b) c) lists, answer = the letter shown inline in the letter. Copy that letter literally (for example, "55 (a - Mittlerweile befinden)" means answer "a"); never infer it from sentence meaning or a different edition's options."""),
 
 'hoeren_teil3': _u("""Section: Hören Teil 3 (a longer workplace conversation).
 Variants start with "Hören Teil 3 (вариант №".

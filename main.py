@@ -9,7 +9,13 @@ from flask import Flask, request, jsonify, Response
 import pdfminer.high_level
 from prompts import PROMPTS
 from response_schemas import SPAN_TEXT_SECTION_TYPES
-from answer_markers import _inject_answer_markers
+from answer_markers import (
+    _inject_answer_markers,
+    _inject_legacy_answer_markers,
+    repair_answers_from_pdf_markers,
+    repair_sprachbausteine_inline_answers,
+    strip_pdf_correct_markers,
+)
 import line_extraction
 import span_resolution
 import generation_config
@@ -183,7 +189,9 @@ def _global_discover_cap_ok() -> bool:
 def _cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Headers'] = (
+        'Content-Type, Authorization, X-Exam-Trainer-Answer-Markers'
+    )
     return response
 
 
@@ -386,7 +394,16 @@ def convert():
             raw_text = pdfminer.high_level.extract_text(f)
         text = '\n'.join(line.rstrip() for line in re.split(r'\r?\n', raw_text))
         text = re.sub(r'\n{3,}', '\n\n', text)
-        markdown = _inject_answer_markers(tmp_path, text)
+        # Marker-bearing markdown changes the document digest used by the
+        # client cache. Keep conversion byte-compatible for legacy v37 APKs;
+        # v38 opts into the new format explicitly after its cache namespace
+        # has been prepared.
+        marker_format = request.headers.get('X-Exam-Trainer-Answer-Markers')
+        markdown = (
+            _inject_answer_markers(tmp_path, text)
+            if marker_format == 'v38'
+            else _inject_legacy_answer_markers(tmp_path, text)
+        )
         return jsonify({'markdown': markdown})
     except Exception as e:
         # The raw exception can embed the local tmp file path —
@@ -580,6 +597,20 @@ def parse():
             return jsonify(json.loads(text))
 
         parsed = json.loads(text)
+        marker_format = request.headers.get('X-Exam-Trainer-Answer-Markers')
+        # Gemini can occasionally echo the technical provenance marker into
+        # an option. Remove it before matching option text back to the marker
+        # carried by the source markdown; otherwise the extra suffix prevents
+        # the deterministic repair from recognizing the same option.
+        if marker_format == 'v38':
+            parsed = strip_pdf_correct_markers(parsed)
+        repaired_answers = 0
+        if marker_format == 'v38':
+            repaired_answers = repair_answers_from_pdf_markers(parsed, markdown)
+            if section_type == 'sprachbausteine_teil2':
+                repaired_answers += repair_sprachbausteine_inline_answers(parsed, markdown)
+        if repaired_answers:
+            print(f'PDF_ANSWER_REPAIR section_type={section_type} repaired={repaired_answers}')
         if section_type == 'hoeren_teil1':
             parsed = span_resolution.normalize_h1_variant_numbers(parsed, markdown)
         if section_type == 'telefonnotiz':
