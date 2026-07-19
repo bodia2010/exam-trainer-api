@@ -1179,3 +1179,18 @@ HEAD; пользовательские endpoints вызывались тольк
 Firestore/Redis/user data не изменялись. Authenticated POST→DELETE→stale POST
 device smoke ещё требуется через обновлённый клиент или выделенный test account;
 не использовать реальные пользовательские курсы как одноразовый fixture.
+
+### CR-07 two-device production smoke — 2026-07-19
+
+Production auth/sync проверен на SM-S938B и SM-G985F с одним Firebase account.
+При offline G985F курс удалён на S938B; после reconnect remote tombstone удалил
+на G985F только старый совпавший UUID, а S938B после reload остался пустым.
+Воскрешения удалённого server id не произошло. Повторный импорт того же PDF
+прошёл через cache примерно за 15 секунд, создал новый UUID и синхронизировался
+на оба телефона.
+
+Physical gate подтверждает deployed Firestore tombstone/read/write path и
+re-import policy. Узкий stale pending POST→409 race остаётся доказан backend и
+Flutter host regressions: release app не содержит debug hook для безопасной
+паузы между local save и немедленным upload. Не повторять destructive smoke на
+пользовательском курсе без нового дефекта или отдельного disposable account.
