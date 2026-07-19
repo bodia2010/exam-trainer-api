@@ -1240,3 +1240,33 @@ release risk для раздела 6. Следующая задача — пол
 способом (без backdoor) и прогнать DTO/answer-key/verbatim/diff audits для
 208-страничной версии, прежде чем считать full-PDF gate из раздела 6 полностью
 верифицированным в production.
+
+### Premium full-PDF semantic audit — 2026-07-19
+
+Follow-up закрыт технически, но выявил semantic failure. Два test-course JSON
+без backend backdoor извлечены из app-private storage временной локальной
+same-package/same-release-cert diagnostic сборкой; production APK сразу
+восстановлен и оба курса сохранились. Артефакты лежат вне репозиториев в
+`/home/igor/Downloads/exam-trainer-audit-live/`; production Redis/Firestore и
+backend deployment не изменялись.
+
+Flutter DTO gate прошёл для cached 142 + live 143 items (все 12 типов).
+Structural diff live против curated v37: 21 exact, 122 new/changed; среди общих
+identity 9 metadata/audio-only и 85 payload-changed, плюс 28 live-only и 27
+curated-only. Это содержательная нестабильность cold parse, не только voice
+metadata или один лишний item.
+
+PDF-highlight gate: 228 OK, 15 NO_MARK, 3 реальные MISMATCH, 1 false-positive
+AMBIGUOUS. Подтверждённые ошибки: Beschwerde v5 Q19 (`c` вместо `a`),
+Sprachbausteine Teil 2 v1 Q55 (`c` вместо `a`), Hören Teil 3 v5 Q34 (`c` вместо
+`a`). Все 24 verbatim candidates независимо сверены и признаны допустимыми
+slash/edition/synthetic-x/gap-placeholder representations; по ним данные не
+патчить. Сам checker нуждается в edition-aware exemptions, чтобы не возвращать
+ложный nonzero.
+
+Решение: curated v37 остаётся production canonical/cache; 143-item live JSON
+нельзя inject/merge/publish. Строка Premium «новый неизвестный PDF» проходит
+transport/structural E2E, но semantic gate остаётся FAIL. Следующая фаза должна
+исправить version identity/discovery drift и answer-key fidelity, иметь offline
+regression на сохранённом live fixture и запускать новый paid reparse только
+после зелёного детерминированного gate.
