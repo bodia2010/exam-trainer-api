@@ -1282,6 +1282,14 @@ package удалён, установленный production package сохран
 APK SHA-256 `11e684a949942f9747e48314f6b793d263b8177eb9e1a7eebb6cfd73f00c7153`,
 но его не устанавливать/публиковать до v38 curated cache и versionCode bump.
 
+Dual-format backend commit `ad87d22` развёрнут в production: Vercel deployment
+`dpl_Da6iCoFcXQResqAM7tPoDdmdEvbE`, alias
+`https://exam-trainer-api.vercel.app`, состояние READY. Safe smoke: `/api/me`
+без auth вернул 401 с нормализованным JSON; OPTIONS `/api/convert` вернул 200 и
+CORS разрешает новый header. Старый APK продолжает legacy-v37 путь. Redis v38
+не опубликован, поэтому Flutter commit `d725b51` только запушен, но APK не
+установлен и не распространялся.
+
 ### Premium full-PDF semantic audit — 2026-07-19
 
 Follow-up закрыт технически, но выявил semantic failure. Два test-course JSON
