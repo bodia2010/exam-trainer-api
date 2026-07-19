@@ -1194,3 +1194,49 @@ re-import policy. Узкий stale pending POST→409 race остаётся до
 Flutter host regressions: release app не содержит debug hook для безопасной
 паузы между local save и немедленным upload. Не повторять destructive smoke на
 пользовательском курсе без нового дефекта или отдельного disposable account.
+
+### Premium full-PDF gate production test — 2026-07-19
+
+Production-проверка "Новый неизвестный PDF" из таблицы раздела 6 (строка
+"Да, до 5 новых документов/день" для Premium). Устройство: Samsung SM-S938B
+(USB, RFCY51N8PEK), production APK versionCode 10, Premium badge подтверждён,
+библиотека курсов изначально пустая.
+
+Исходный 207-страничный flagship PDF (SHA-256
+`53634b0c2c85cb2d6b9d5efabcf54a9a344ce5a7082e7a3b4cd1d0a5926149e9`) дал
+production cache-hit и полный курс 12 типов/142 items — ожидаемый путь для уже
+известного документа (первая строка таблицы). Чтобы проверить именно вторую
+строку таблицы (неизвестный PDF под Premium), к файлу временно добавлена
+нейтральная marker-страница: 208 страниц, SHA-256
+`77d38b429e996ae85ac30ee60a671fc812d626170b8fcef3fa34bd6ad333a7fc`. Backend
+логи подтвердили doc miss и discover miss при `tariff=premium` — 208-страничная
+версия прошла полный discovery+parse путь, что и требовалось для проверки
+Premium-only ветки, а не была отдана из кэша.
+
+Discovery: 1 call, prompt 226009, candidates 10404, оценка стоимости $0.43265.
+Parse: 100 успешных usage calls, prompt 275695, candidates 177993, thoughts
+90709, оценка стоимости $0.47198. Итоговая оценка — $0.90463. Во время import
+произошёл один HTTP 502 на `/api/parse`; клиентский retry восстановился,
+импорт успешно завершился примерно за 5 минут.
+
+Live-счётчики по 12 типам в каноническом порядке: 12,18,11,11,14,12,11,9,15,12,
+10,8 = 143. Curated-счётчики по тем же 12 типам: 12,16,13,12,14,12,12,9,13,12,9,8
+= 142. Расхождение live vs curated присутствует и не объяснено в рамках этой
+сессии.
+
+Все 12 first variants открылись в production UI в content state. Force-stop и
+cold launch не потеряли ни один из двух курсов (207- и 208-страничная версии).
+Временные PDF удалены с тестового телефона, импортированные курсы оставлены в
+библиотеке.
+
+Ограничение сессии: sensitive env переменные Vercel недоступны из CLI, поэтому
+безопасно выгрузить live JSON для answer-key/verbatim audit не удалось;
+debug/admin backdoor для такой выгрузки не добавлялся.
+
+**Вывод:** structural Premium E2E (Premium-only discovery+parse путь,
+`tariff=premium`, 502-retry, persist через force-stop) — PASS. Semantic
+correctness — NOT CLOSED: расхождение live (143) vs curated (142) по count —
+release risk для раздела 6. Следующая задача — получить live JSON безопасным
+способом (без backdoor) и прогнать DTO/answer-key/verbatim/diff audits для
+208-страничной версии, прежде чем считать full-PDF gate из раздела 6 полностью
+верифицированным в production.
