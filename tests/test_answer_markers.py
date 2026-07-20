@@ -434,6 +434,23 @@ class ParseEndpointPdfAnswerRepairTest(unittest.TestCase):
         inject.assert_called_once()
         legacy_inject.assert_not_called()
 
+    @patch('main._rate_limit_ok', return_value=True)
+    @patch('main._authenticate', return_value='uid-1')
+    def test_parse_rejects_non_object_json_bodies(self, _authenticate, _rate_limit):
+        # Same bug class as /api/cache and /api/device: a valid-JSON body
+        # that isn't an object used to reach body.get(...), raising
+        # AttributeError and returning a raw 500.
+        for bad_body in ([], 'a string', 42, None, True):
+            response = self.client.post(
+                '/api/parse',
+                data=json.dumps(bad_body),
+                content_type='application/json',
+            )
+            self.assertEqual(
+                response.status_code, 400,
+                msg=f'non-object body {bad_body!r} did not get a clean 400')
+            self.assertNotIn(b'Traceback', response.data)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -46,27 +46,62 @@ _UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
 
 
 def _cache_get(key: str):
+    """Returns the cached value, or None on either a genuine miss OR any
+    Redis/transport failure — safe for the read (GET) route, where both
+    cases degrade identically to "not cached, caller should re-parse."
+    NOT safe for a caller that needs to tell "confirmed absent" apart from
+    "we don't actually know" — see _cache_probe for that."""
     if not _UPSTASH_URL:
         return None
-    resp = requests.get(
-        f'{_UPSTASH_URL}/get/{key}',
-        headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
-        timeout=10,
-    )
+    try:
+        resp = requests.get(
+            f'{_UPSTASH_URL}/get/{key}',
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return None
     if resp.status_code != 200:
         return None
-    return resp.json().get('result')
+    try:
+        return resp.json().get('result')
+    except ValueError:
+        return None
 
 
-def _cache_set(key: str, value: str):
+class _CacheUnavailable(Exception):
+    """Redis could not be reached, or returned something other than a
+    clean hit/miss. Distinct from "confirmed absent" — a caller deciding
+    whether it's safe to treat a key as not-yet-existing (see
+    cache_endpoint's POST handler) must never conflate the two, or an
+    outage would look identical to "go ahead"."""
+
+
+def _cache_probe(key: str):
+    """Like _cache_get, but raises _CacheUnavailable instead of silently
+    returning None when the state of `key` genuinely could not be
+    determined — for the one caller (the write-once check below) where
+    that distinction is a correctness/security requirement, not just a
+    convenience."""
     if not _UPSTASH_URL:
-        return
-    requests.post(
-        f'{_UPSTASH_URL}/set/{key}',
-        headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
-        data=value.encode('utf-8'),
-        timeout=10,
-    )
+        raise _CacheUnavailable('Upstash not configured')
+    try:
+        resp = requests.get(
+            f'{_UPSTASH_URL}/get/{key}',
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        raise _CacheUnavailable(str(e)) from e
+    if resp.status_code != 200:
+        raise _CacheUnavailable(f'HTTP {resp.status_code}')
+    try:
+        payload = resp.json()
+    except ValueError as e:
+        raise _CacheUnavailable('non-JSON response') from e
+    if not isinstance(payload, dict):
+        raise _CacheUnavailable('unexpected response shape')
+    return payload.get('result')
 
 
 # The largest legitimate value observed in practice (a full 142-item,
@@ -85,6 +120,41 @@ def _cache_key_type(key: str) -> str:
         return 'legacy'
     parts = key.split('|')
     return parts[1] if len(parts) >= 2 and parts[1] else 'unknown'
+
+
+# Strict shape for a cache key: either a legacy bare sha256 hex digest (no
+# version/type segment, predates the `v14|<type>|<hash>` rollout — see
+# _cache_key_type), or the current `<version>|<type>|<hash>` shape, where
+# version is `vN` (group/discover keys) or `vN.vM` (doc keys, which depend
+# on both the discover and parse cache versions — see ParseService._cacheKey
+# in the Flutter client). Anchored, fixed-alphabet, no '/', '.', or other
+# characters that could turn into a path/query fragment when concatenated
+# into the outbound Upstash REST URL.
+_LEGACY_CACHE_KEY_RE = re.compile(r'^[0-9a-f]{64}$')
+_CACHE_KEY_RE = re.compile(
+    r'^v[0-9]+(?:\.v[0-9]+)?\|(?:doc|group|discover)\|[0-9a-f]{64}$'
+)
+_CACHE_KEY_MAX_LEN = 200
+
+
+def _valid_cache_key(value) -> bool:
+    if not isinstance(value, str) or not (1 <= len(value) <= _CACHE_KEY_MAX_LEN):
+        return False
+    return bool(
+        _LEGACY_CACHE_KEY_RE.fullmatch(value) or _CACHE_KEY_RE.fullmatch(value))
+
+
+def _json_object(request_obj):
+    """Parses the request body and returns it only if it's a JSON object;
+    None otherwise (including malformed JSON, which Flask's get_json
+    already turns into a 400 on its own — this covers the gap: valid JSON
+    that parses to a list/string/number/null, where a subsequent
+    body.get(...) would raise AttributeError and reach Flask's generic 500
+    handler instead of a clean, safe 400). Mirrors the isinstance check
+    /api/courses already had; centralized here so every POST route with a
+    JSON body uses the same guard."""
+    body = request_obj.get_json(force=True, silent=True)
+    return body if isinstance(body, dict) else None
 
 
 def _authenticate():
@@ -235,7 +305,9 @@ def device():
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    body = request.get_json(force=True)
+    body = _json_object(request)
+    if body is None:
+        return jsonify({'error': 'JSON object is required'}), 400
     device_id = (body.get('deviceId') or '').strip()
     device_name = (body.get('deviceName') or 'Unknown Device').strip()
     if not _valid_device_id(device_id):
@@ -253,7 +325,9 @@ def device_force():
     if not uid:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    body = request.get_json(force=True)
+    body = _json_object(request)
+    if body is None:
+        return jsonify({'error': 'JSON object is required'}), 400
     device_id = (body.get('deviceId') or '').strip()
     device_name = (body.get('deviceName') or 'Unknown Device').strip()
     if not _valid_device_id(device_id):
@@ -523,7 +597,9 @@ def parse():
     if not _rate_limit_ok(uid):
         return jsonify({'error': 'Rate limit exceeded'}), 429
 
-    body = request.get_json(force=True)
+    body = _json_object(request)
+    if body is None:
+        return jsonify({'error': 'JSON object is required'}), 400
     markdown = body.get('markdown', '')
     section_type = body.get('section_type', '')
 
@@ -667,7 +743,7 @@ def cache_endpoint():
 
     if request.method == 'GET':
         content_hash = request.args.get('hash', '')
-        if not content_hash:
+        if not _valid_cache_key(content_hash):
             return jsonify({'error': 'hash is required'}), 400
         cached = _cache_get(content_hash)
         hit = cached is not None
@@ -676,48 +752,89 @@ def cache_endpoint():
         print(f'CACHE_LOOKUP hit={hit} key_type={_cache_key_type(content_hash)}')
         if not hit:
             return jsonify({'hit': False})
-        return jsonify({'hit': True, 'value': json.loads(cached)})
+        try:
+            return jsonify({'hit': True, 'value': json.loads(cached)})
+        except json.JSONDecodeError:
+            # A corrupted stored value must not be a 500 for every future
+            # reader — degrade to a miss so the client just re-parses.
+            print(f'CACHE_CORRUPT_VALUE key_type={_cache_key_type(content_hash)}')
+            return jsonify({'hit': False})
 
     # Generic hash -> JSON value store, used both for whole-course results
     # (keyed by a hash of the full document) and per-variant-group parse
     # results (keyed by a hash of just that group's text) — same store,
     # different granularity of what's being cached.
-    body = request.get_json(force=True)
+    body = _json_object(request)
+    if body is None:
+        return jsonify({'error': 'JSON object is required'}), 400
     content_hash = body.get('hash', '')
     value = body.get('value')
-    if not content_hash or value is None:
-        return jsonify({'error': 'hash and value are required'}), 400
+    if not _valid_cache_key(content_hash) or value is None:
+        return jsonify({'error': 'a valid hash and value are required'}), 400
     serialized = json.dumps(value)
     if len(serialized) > _CACHE_MAX_VALUE_BYTES:
         return jsonify({'error': 'value too large'}), 413
 
-    # Parsed content never changes for the same input text — cache
-    # permanently rather than picking an arbitrary TTL. That "permanent"
-    # promise was never actually enforced here: any authenticated caller —
-    # free tier included, since this endpoint has no premium gate — could
-    # overwrite ANY existing key, including the single hand-curated,
-    # PDF-verified `doc` entry the whole app converges on for the flagship
-    # document (see PRODUCT_PLAN.md Phase 1/3 — real money and manual
-    # review went into that exact value) with arbitrary wrong exam content,
-    # just by POSTing the same hash. tools/inject_curated.py's own
-    # maintenance path already enforces "never overwrite a differing
-    # target" directly against Redis (see its `migrate()`); this mirrors
-    # that rule for the public endpoint, which had no such guard. Curated
-    # publishing itself is unaffected — inject_curated.py talks to Upstash
-    # directly with its own credentials, never through this route.
-    existing = _cache_get(content_hash)
-    if existing is not None:
-        try:
-            differs = json.loads(existing) != value
-        except json.JSONDecodeError:
-            differs = True
-        if differs:
-            print(
-                'CACHE_WRITE_REJECTED_EXISTS '
-                f'key_type={_cache_key_type(content_hash)}'
-            )
-        return jsonify({'ok': True})
-    _cache_set(content_hash, serialized)
+    # Trust model: this endpoint NEVER creates a new shared-cache entry —
+    # it only ever confirms (idempotently) or rejects a write against a
+    # value that's already there. Earlier this used a non-atomic
+    # GET-then-SET "write-once" check: two concurrent requests to the same
+    # absent key could both observe MISS and both proceed to SET, with the
+    # second silently winning (reproduced deterministically). Making that
+    # SET atomic (e.g. Redis SET..NX) would have closed the race but NOT
+    # the deeper problem: authentication alone — free tier included, this
+    # endpoint has no premium gate — says nothing about whether a value is
+    # correct, and premium status isn't a trust signal either (anyone can
+    # buy it). Either way, ANY authenticated caller could still be the
+    # FIRST writer of a brand-new key and permanently seed it with
+    # arbitrary content, including impersonating the hash of the single
+    # hand-curated, PDF-verified `doc` entry the whole app converges on
+    # (see PRODUCT_PLAN.md Phase 1/3 — real money and manual review went
+    # into that exact value) before anything legitimate ever reaches it.
+    # Removing this endpoint's ability to create anything closes both
+    # problems at once: with no SET call left in this handler at all,
+    # there is no race to make atomic, and no "first write wins" window to
+    # exploit — every code path below only ever reads. New shared-cache
+    # entries can still be published, but only out-of-band by
+    # tools/inject_curated.py — same UPSTASH_REDIS_REST_URL/TOKEN env vars,
+    # not a distinct secret, but a separate manually-run CLI path that
+    # bypasses this public Flask endpoint (and Firebase auth) entirely and
+    # requires a human-reviewed checklist (PRODUCT_PLAN.md Phase 3) before
+    # anything is written; it already independently enforces "never
+    # overwrite a differing target" against Redis (see its `migrate()`) —
+    # this mirrors that same rule for the public read-side of the
+    # contract. Cost: inject_curated.py only ever publishes `doc` keys, so
+    # `group`/`discover` entries — previously written by ANY live client
+    # import, either tier, no premium gate on that path either — can no
+    # longer be populated by anyone at all; every group/discover lookup
+    # misses and re-parses. See PRODUCT_PLAN.md for that trade-off and a
+    # proposed follow-up (a trusted server-side write from inside
+    # /api/parse itself, which never needs this endpoint's public trust
+    # boundary at all) — out of scope for this fix.
+    try:
+        existing = _cache_probe(content_hash)
+    except _CacheUnavailable:
+        return jsonify({'error': 'cache temporarily unavailable'}), 503
+
+    if existing is None:
+        print(
+            'CACHE_WRITE_REFUSED_NO_CREATE '
+            f'key_type={_cache_key_type(content_hash)}'
+        )
+        return jsonify({
+            'error': 'creating new shared cache entries is not allowed here',
+        }), 403
+
+    try:
+        differs = json.loads(existing) != value
+    except json.JSONDecodeError:
+        differs = True
+    if differs:
+        print(
+            'CACHE_WRITE_REJECTED_CONFLICT '
+            f'key_type={_cache_key_type(content_hash)}'
+        )
+        return jsonify({'ok': False, 'conflict': True}), 409
     return jsonify({'ok': True})
 
 
@@ -731,7 +848,9 @@ def tts_endpoint():
     if not _rate_limit_ok(uid):
         return jsonify({'error': 'Rate limit exceeded'}), 429
 
-    body = request.get_json(force=True)
+    body = _json_object(request)
+    if body is None:
+        return jsonify({'error': 'JSON object is required'}), 400
     text = (body.get('text') or '').strip()
     speaker = body.get('speaker') or ''
     voice_gender = body.get('voice_gender') if 'voice_gender' in body else None

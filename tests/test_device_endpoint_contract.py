@@ -1,7 +1,44 @@
+import json
 import unittest
 from unittest.mock import patch
 
 import main
+
+
+class DeviceEndpointMalformedJsonTest(unittest.TestCase):
+    """Regression: a valid-JSON-but-wrong-shaped body (list/string/number/
+    null instead of an object) used to reach `body.get('deviceId')`, which
+    raises AttributeError on anything but a dict — reaching Flask's
+    generic 500 handler instead of a clean, safe 400."""
+
+    def setUp(self):
+        self.client = main.app.test_client()
+
+    @patch.object(main, '_authenticate', return_value='uid-1')
+    def test_device_rejects_non_object_json_bodies(self, _authenticate):
+        for bad_body in ([], 'a string', 42, None, True):
+            response = self.client.post(
+                '/api/device',
+                data=json.dumps(bad_body),
+                content_type='application/json',
+            )
+            self.assertEqual(
+                response.status_code, 400,
+                msg=f'non-object body {bad_body!r} did not get a clean 400')
+            self.assertNotIn(b'Traceback', response.data)
+
+    @patch.object(main, '_authenticate', return_value='uid-1')
+    def test_device_force_rejects_non_object_json_bodies(self, _authenticate):
+        for bad_body in ([], 'a string', 42, None, True):
+            response = self.client.post(
+                '/api/device/force',
+                data=json.dumps(bad_body),
+                content_type='application/json',
+            )
+            self.assertEqual(
+                response.status_code, 400,
+                msg=f'non-object body {bad_body!r} did not get a clean 400')
+            self.assertNotIn(b'Traceback', response.data)
 
 
 class DeviceEndpointIdValidationTest(unittest.TestCase):
