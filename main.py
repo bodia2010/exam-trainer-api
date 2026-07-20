@@ -406,10 +406,62 @@ _PREMIUM_DAILY_IMPORT_LIMIT = 5
 _GLOBAL_DAILY_DISCOVER_LIMIT = 100
 
 
-def _premium_import_cap_ok(uid: str) -> bool:
+_PREMIUM_IMPORT_CAP_SCRIPT = """
+if redis.call('EXISTS', KEYS[2]) == 1 then
+  return 1
+end
+local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+if count >= tonumber(ARGV[1]) then
+  return 0
+end
+redis.call('SET', KEYS[2], '1', 'EX', ARGV[2])
+redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+""".strip()
+
+
+def _premium_import_cap_ok(uid: str, document_identity: str) -> bool:
+    """Counts a document at most once per account and UTC day.
+
+    The Lua script makes the seen-document marker and daily counter update one
+    atomic Redis operation, so concurrent retries cannot consume multiple
+    slots.  The ``v2`` namespace intentionally ignores counters produced by
+    the old request-counting implementation during this rollout.
+    """
+    if not _UPSTASH_URL:
+        return True
     day = time.strftime('%Y%m%d', time.gmtime())
-    count = _incr_with_ttl(f'importcap|{uid}|{day}', 86400)
-    return count is None or count <= _PREMIUM_DAILY_IMPORT_LIMIT
+    digest = hashlib.sha256(document_identity.encode('utf-8')).hexdigest()
+    counter_key = f'importcap|v2|{uid}|{day}'
+    seen_key = f'importcapseen|v2|{uid}|{day}|{digest}'
+    try:
+        response = requests.post(
+            _UPSTASH_URL,
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            json=[
+                'EVAL',
+                _PREMIUM_IMPORT_CAP_SCRIPT,
+                '2',
+                counter_key,
+                seen_key,
+                str(_PREMIUM_DAILY_IMPORT_LIMIT),
+                '86400',
+            ],
+            timeout=10,
+        )
+    except requests.RequestException:
+        return True
+    if response.status_code != 200:
+        return True
+    try:
+        payload = response.json()
+    except ValueError:
+        return True
+    if not isinstance(payload, dict) or payload.get('error'):
+        return True
+    result = payload.get('result')
+    return result != 0
 
 
 def _global_discover_cap_ok() -> bool:
@@ -724,6 +776,20 @@ def _call_gemini(prompt: str, section_type: str = '', is_premium: bool = False) 
             continue
         break
 
+    upstream_status = 'unknown'
+    try:
+        error = resp.json().get('error') or {}
+        if isinstance(error, dict) and isinstance(error.get('status'), str):
+            upstream_status = error['status']
+    except (ValueError, AttributeError):
+        pass
+    print(
+        'GEMINI_UPSTREAM_ERROR '
+        f'section_type={section_type or "unknown"} '
+        f'tariff={"premium" if is_premium else "free"} '
+        f'model={model} http_status={last_status} '
+        f'api_status={upstream_status}'
+    )
     if last_status == 429:
         raise GeminiError(429, 'Gemini rate limit reached — please try again in a moment.')
     raise GeminiError(502, f'Gemini request failed (HTTP {last_status}).')
@@ -773,7 +839,8 @@ def parse():
                          'documents require Premium. Free tier can open any '
                          'document a Premium import has already used.'
             }), 403
-        if not _premium_import_cap_ok(uid):
+        document_identity = f'{marker_format or "legacy"}\n{markdown}'
+        if not _premium_import_cap_ok(uid, document_identity):
             print(f'DISCOVER_IMPORT_CAP_REJECTED uid={uid[:8]}')
             return jsonify({
                 'error': 'Daily limit for new documents reached — try again '
