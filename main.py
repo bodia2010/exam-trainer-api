@@ -69,6 +69,13 @@ def _cache_set(key: str, value: str):
     )
 
 
+# The largest legitimate value observed in practice (a full 142-item,
+# 12-section curated course, audio metadata included) is ~515KB; this
+# leaves generous headroom while still bounding how much storage/traffic
+# an authenticated account can force onto the shared Redis cache per write.
+_CACHE_MAX_VALUE_BYTES = 4 * 1024 * 1024
+
+
 def _cache_key_type(key: str) -> str:
     """Cache keys are rolling out a new `v14|<type>|<hash>` format (type is
     one of doc/group/discover) but during the rollout some callers may still
@@ -102,6 +109,21 @@ def _expected_revision(value):
 
 def _valid_course_id(value) -> bool:
     return isinstance(value, str) and _COURSE_ID_RE.fullmatch(value) is not None
+
+
+# Device ids are client-generated UUIDs (see DeviceService.getDeviceId in
+# the Flutter client), the same safe-path-segment shape as course ids —
+# validated for the identical reason _valid_course_id exists: this value is
+# concatenated straight into a Firestore REST document path
+# (`users/{uid}/devices/{deviceId}`, see firestore_client._devices_url)
+# with no escaping. An unvalidated value containing '/' or '..' segments
+# could let an authenticated caller address a Firestore path outside their
+# own uid's subtree instead of just their own device record.
+_DEVICE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
+
+
+def _valid_device_id(value) -> bool:
+    return isinstance(value, str) and _DEVICE_ID_RE.fullmatch(value) is not None
 
 
 def _mutation_json(result, *, field: str):
@@ -216,7 +238,7 @@ def device():
     body = request.get_json(force=True)
     device_id = (body.get('deviceId') or '').strip()
     device_name = (body.get('deviceName') or 'Unknown Device').strip()
-    if not device_id:
+    if not _valid_device_id(device_id):
         return jsonify({'error': 'deviceId is required'}), 400
 
     allowed = firestore_client.check_and_register_device(uid, device_id, device_name)
@@ -234,7 +256,7 @@ def device_force():
     body = request.get_json(force=True)
     device_id = (body.get('deviceId') or '').strip()
     device_name = (body.get('deviceName') or 'Unknown Device').strip()
-    if not device_id:
+    if not _valid_device_id(device_id):
         return jsonify({'error': 'deviceId is required'}), 400
 
     ok = firestore_client.force_register_device(uid, device_id, device_name)
@@ -665,9 +687,37 @@ def cache_endpoint():
     value = body.get('value')
     if not content_hash or value is None:
         return jsonify({'error': 'hash and value are required'}), 400
+    serialized = json.dumps(value)
+    if len(serialized) > _CACHE_MAX_VALUE_BYTES:
+        return jsonify({'error': 'value too large'}), 413
+
     # Parsed content never changes for the same input text — cache
-    # permanently rather than picking an arbitrary TTL.
-    _cache_set(content_hash, json.dumps(value))
+    # permanently rather than picking an arbitrary TTL. That "permanent"
+    # promise was never actually enforced here: any authenticated caller —
+    # free tier included, since this endpoint has no premium gate — could
+    # overwrite ANY existing key, including the single hand-curated,
+    # PDF-verified `doc` entry the whole app converges on for the flagship
+    # document (see PRODUCT_PLAN.md Phase 1/3 — real money and manual
+    # review went into that exact value) with arbitrary wrong exam content,
+    # just by POSTing the same hash. tools/inject_curated.py's own
+    # maintenance path already enforces "never overwrite a differing
+    # target" directly against Redis (see its `migrate()`); this mirrors
+    # that rule for the public endpoint, which had no such guard. Curated
+    # publishing itself is unaffected — inject_curated.py talks to Upstash
+    # directly with its own credentials, never through this route.
+    existing = _cache_get(content_hash)
+    if existing is not None:
+        try:
+            differs = json.loads(existing) != value
+        except json.JSONDecodeError:
+            differs = True
+        if differs:
+            print(
+                'CACHE_WRITE_REJECTED_EXISTS '
+                f'key_type={_cache_key_type(content_hash)}'
+            )
+        return jsonify({'ok': True})
+    _cache_set(content_hash, serialized)
     return jsonify({'ok': True})
 
 
