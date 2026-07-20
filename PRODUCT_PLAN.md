@@ -1319,3 +1319,23 @@ transport/structural E2E, но semantic gate остаётся FAIL. Следую
 исправить version identity/discovery drift и answer-key fidelity, иметь offline
 regression на сохранённом live fixture и запускать новый paid reparse только
 после зелёного детерминированного gate.
+
+### Production rollout v38 — 2026-07-20
+
+Dual-format backend остаётся deployment
+`dpl_Da6iCoFcXQResqAM7tPoDdmdEvbE`. Проверенный 142-item curated Redis value
+перенесён без нового Gemini parse из legacy `v30.v37` doc-key в вычисленный
+marker-aware `v30.v38` doc-key. Dry-run подтвердил source HIT/target MISS;
+apply и отдельный read-back подтвердили точное байтовое равенство, SHA-256
+`adf1cbca8b386eea6d62215fc6df0c158b6928060e800ea952f887768e4c8870`, 12
+sections/142 items. Source v37 не изменён. Temporary Upstash env уничтожен
+после проверки; credentials нигде не сохранены.
+
+Flutter production build поднят до versionCode 11, clean APK/AAB собраны и
+проверены (package, production API, upload certificate, hashes). SM-G985F
+обновлён без очистки данных. Backend regression: 217/217 + compileall. Flutter:
+352/352, coverage 55,26%, format/analyze clean. Остаточный rollout gate —
+Premium/Free physical-device cache smoke. Wireless Flutter integration дважды
+оборвался на test-harness WebSocket до test body; production package versionCode
+11 сохранился, integration package удалён. До зелёного device-smoke AAB не
+публиковать и новый paid parse не запускать.
