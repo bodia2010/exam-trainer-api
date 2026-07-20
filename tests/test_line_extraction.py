@@ -10,6 +10,22 @@ class NumberMarkdownTest(unittest.TestCase):
             '00000: alpha\n00001: \n00002: beta',
         )
 
+    def test_unnumber_markdown_reverses_flutter_writeln_payload(self):
+        for raw in ('first\nsecond', 'first\n', '', '00001: source text'):
+            with self.subTest(raw=raw):
+                numbered = line_extraction.number_markdown(raw) + '\n'
+                self.assertEqual(raw, line_extraction.unnumber_markdown(numbered))
+
+    def test_unnumber_markdown_rejects_missing_or_out_of_order_prefixes(self):
+        for malformed in (
+            'plain text',
+            '00001: wrong first index\n',
+            '00000: first\n00002: skipped\n',
+            '00000:first without separator\n',
+        ):
+            with self.subTest(malformed=malformed):
+                self.assertIsNone(line_extraction.unnumber_markdown(malformed))
+
 
 class ExtractSpanValidationTest(unittest.TestCase):
     def setUp(self):

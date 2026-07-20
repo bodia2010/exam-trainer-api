@@ -134,6 +134,28 @@ def number_markdown(markdown: str) -> str:
     return '\n'.join(f'{i:05d}: {line}' for i, line in enumerate(lines))
 
 
+def unnumber_markdown(numbered: str) -> str | None:
+    """Strictly reverse the Flutter discovery line-numbering format.
+
+    ``ParseService.discoverSections`` uses ``StringBuffer.writeln``, so its
+    payload has one transport newline after the final numbered line. Remove
+    exactly that newline, then require every prefix to match its actual
+    zero-based position. Returning ``None`` instead of guessing is a security
+    boundary: the backend only signs a cache key when it can reproduce the
+    client's raw-document digest byte for byte.
+    """
+    if not isinstance(numbered, str):
+        return None
+    payload = numbered[:-1] if numbered.endswith('\n') else numbered
+    raw_lines: list[str] = []
+    for index, line in enumerate(payload.split('\n')):
+        prefix = f'{index:05d}: '
+        if not line.startswith(prefix):
+            return None
+        raw_lines.append(line[len(prefix):])
+    return '\n'.join(raw_lines)
+
+
 def extract_span(
     raw_lines: list[str],
     start_line: int,

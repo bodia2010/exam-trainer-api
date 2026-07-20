@@ -1,7 +1,7 @@
 import hashlib
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import main
 
@@ -101,6 +101,21 @@ class CacheEndpointContractTest(unittest.TestCase):
             # wrong-shaped JSON body.
             self.assertNotIn(b'Traceback', response.data)
 
+    @patch.object(main, '_authenticate', return_value='uid-1')
+    def test_post_rejects_declared_oversized_body_before_json_decode(
+            self, _authenticate):
+        with patch.object(main, '_json_object') as json_object:
+            response = self.client.post(
+                '/api/cache',
+                data=b'{}',
+                content_type='application/json',
+                environ_overrides={
+                    'CONTENT_LENGTH': str(main._CACHE_MAX_REQUEST_BYTES + 1),
+                },
+            )
+        self.assertEqual(response.status_code, 413)
+        json_object.assert_not_called()
+
     # --- reads ---------------------------------------------------------
 
     @patch.object(main, '_authenticate', return_value='uid-1')
@@ -199,6 +214,39 @@ class CacheEndpointContractTest(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 503)
         self.assertNotIn('ok', response.get_json())
+
+    def test_cache_probe_treats_http_200_error_payload_as_unavailable(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'error': 'ERR simulated Upstash failure'}
+        with patch.object(main, '_UPSTASH_URL', 'https://redis.invalid'), \
+                patch.object(main.requests, 'get', return_value=response), \
+                self.assertRaises(main._CacheUnavailable):
+            main._cache_probe(_GROUP_KEY)
+
+    def test_atomic_set_if_absent_uses_redis_nx_command(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {'result': 'OK'}
+        with patch.object(main, '_UPSTASH_URL', 'https://redis.invalid'), \
+                patch.object(main.requests, 'post', return_value=response) as post:
+            created = main._cache_set_if_absent(_GROUP_KEY, '{"a":1}')
+        self.assertTrue(created)
+        self.assertEqual(
+            post.call_args.kwargs['json'],
+            ['SET', _GROUP_KEY, '{"a":1}', 'NX'],
+        )
+
+    def test_atomic_set_if_absent_reports_existing_and_upstash_error(self):
+        existing = Mock(status_code=200)
+        existing.json.return_value = {'result': None}
+        failed = Mock(status_code=200)
+        failed.json.return_value = {'error': 'ERR simulated'}
+        with patch.object(main, '_UPSTASH_URL', 'https://redis.invalid'), \
+                patch.object(main.requests, 'post', return_value=existing):
+            self.assertFalse(main._cache_set_if_absent(_GROUP_KEY, '{}'))
+        with patch.object(main, '_UPSTASH_URL', 'https://redis.invalid'), \
+                patch.object(main.requests, 'post', return_value=failed), \
+                self.assertRaises(main._CacheUnavailable):
+            main._cache_set_if_absent(_GROUP_KEY, '{}')
 
 
 if __name__ == '__main__':

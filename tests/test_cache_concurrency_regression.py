@@ -1,4 +1,4 @@
-"""Regression tests for the /api/cache write-once race (commit b9345b2).
+"""Regression tests for immutable, proof-authorized shared-cache writes.
 
 b9345b2 fixed cache poisoning by adding a "write-once" check to the POST
 handler, implemented as two separate calls: read the existing value, then
@@ -7,17 +7,14 @@ to the same not-yet-cached key can both observe "absent" and both proceed
 to write, with the second one silently winning (last-writer-wins), which
 defeats the entire point of "never overwrite existing content."
 
-The endpoint has since been redesigned so that POST /api/cache can NEVER
-create a new key at all. It only ever:
+The endpoint now only creates an absent key when /api/parse authorized the
+exact key/value pair with an HMAC proof. It otherwise:
   - returns 200 idempotently if an existing cached value byte-for-byte
     matches what was posted;
   - returns 409 if an existing value differs;
-  - returns 403 if the key does not exist yet (creation is refused, not
-    raced).
-The only Redis operation the handler performs is a read (`_cache_probe`);
-it issues no SET/write of any kind. New keys can only be created
-out-of-band by tools/inject_curated.py, which talks to Upstash directly
-with separate credentials.
+  - returns 403 if an absent key has no valid proof.
+Authorized creation uses Redis SET NX, so simultaneous valid publishers cannot
+overwrite one another.
 
 This module proves two things:
   1. The concurrency harness used here (barrier-synchronized threads plus
@@ -26,10 +23,9 @@ This module proves two things:
      CacheConcurrencyRegressionTest.test_old_buggy_get_then_set_pattern_races_proving_harness_is_sound,
      which runs a local reimplementation of the OLD two-step pattern
      through the exact same harness and asserts the race DOES happen.
-  2. The real /api/cache POST route, run through that same harness against
-     a mocked, artificially-delayed `_cache_probe`, never creates anything
-     and never issues a write, no matter how the concurrent requests
-     interleave.
+  2. Unproved concurrent callers cannot write anything.
+  3. Concurrent proved callers use one atomic winner and settle on one
+     immutable value.
 """
 
 import hashlib
@@ -66,7 +62,7 @@ class CacheConcurrencyRegressionTest(unittest.TestCase):
         self.client = main.app.test_client()
 
     # ------------------------------------------------------------------
-    # 1. Real endpoint: concurrent POSTs to an ABSENT key never create it.
+    # 1. Concurrent unproved POSTs to an absent key never create it.
     # ------------------------------------------------------------------
     @patch.object(main, '_rate_limit_ok', return_value=True)
     @patch.object(main, '_authenticate', return_value='uid-concurrency')
@@ -111,14 +107,125 @@ class CacheConcurrencyRegressionTest(unittest.TestCase):
             body = response.get_json()
             self.assertNotIn('ok', body)  # never the success/creation shape
 
-        # The write capability isn't just unused here -- it no longer
-        # exists in main.py at all.
+        # The old unconditional write capability is gone; without a proof,
+        # even the new SET NX path is unreachable.
         self.assertFalse(
             hasattr(main, '_cache_set'),
             'the old write function must be fully removed, not merely '
             'unused, so there is no code path left that could ever '
             'create a key from this endpoint')
         http_post.assert_not_called()
+
+    @patch.object(main, '_rate_limit_ok', return_value=True)
+    @patch.object(main, '_authenticate', return_value='uid-concurrency')
+    def test_concurrent_proved_posts_have_one_atomic_winner(
+            self, _authenticate, _rate_limit_ok):
+        key = _key('proved-race-target')
+        value = {'variant_number': 1, 'questions': [1, 2]}
+        n = 2
+        barrier = threading.Barrier(n)
+        lock = threading.Lock()
+        store = {}
+        first_probe_count = 0
+        create_results = []
+
+        def probe(probed_key):
+            nonlocal first_probe_count
+            with lock:
+                first_probe_count += 1
+                is_initial = first_probe_count <= n
+                observed = store.get(probed_key)
+            if is_initial:
+                barrier.wait(timeout=5)
+                time.sleep(0.02)
+                return observed
+            with lock:
+                return store.get(probed_key)
+
+        def set_if_absent(target_key, serialized):
+            with lock:
+                if target_key in store:
+                    create_results.append(False)
+                    return False
+                store[target_key] = serialized
+                create_results.append(True)
+                return True
+
+        with patch.object(main, '_UPSTASH_TOKEN', 'test-proof-secret'), \
+                patch.object(main, '_cache_probe', side_effect=probe), \
+                patch.object(
+                    main, '_cache_set_if_absent', side_effect=set_if_absent):
+            proof = main._cache_proof(key, value)
+            with ThreadPoolExecutor(max_workers=n) as pool:
+                futures = [
+                    pool.submit(
+                        lambda: main.app.test_client().post(
+                            '/api/cache',
+                            json={'hash': key, 'value': value, 'proof': proof},
+                        )
+                    )
+                    for _ in range(n)
+                ]
+                responses = [future.result(timeout=10) for future in futures]
+
+        self.assertEqual(sorted(response.status_code for response in responses), [200, 200])
+        self.assertEqual(create_results.count(True), 1)
+        self.assertEqual(create_results.count(False), 1)
+        self.assertEqual(json.loads(store[key]), value)
+
+    @patch.object(main, '_rate_limit_ok', return_value=True)
+    @patch.object(main, '_authenticate', return_value='uid-concurrency')
+    def test_concurrent_distinct_valid_proofs_keep_first_value_immutable(
+            self, _authenticate, _rate_limit_ok):
+        key = _key('distinct-proved-race')
+        values = [{'sample': 'a'}, {'sample': 'b'}]
+        barrier = threading.Barrier(2)
+        lock = threading.Lock()
+        store = {}
+        initial_probes = 0
+
+        def probe(probed_key):
+            nonlocal initial_probes
+            with lock:
+                initial_probes += 1
+                is_initial = initial_probes <= 2
+                observed = store.get(probed_key)
+            if is_initial:
+                barrier.wait(timeout=5)
+                return observed
+            with lock:
+                return store.get(probed_key)
+
+        def set_if_absent(target_key, serialized):
+            with lock:
+                if target_key in store:
+                    return False
+                store[target_key] = serialized
+                return True
+
+        with patch.object(main, '_UPSTASH_TOKEN', 'test-proof-secret'), \
+                patch.object(main, '_cache_probe', side_effect=probe), \
+                patch.object(
+                    main, '_cache_set_if_absent', side_effect=set_if_absent):
+            proofs = [main._cache_proof(key, value) for value in values]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [
+                    pool.submit(
+                        lambda index=index: main.app.test_client().post(
+                            '/api/cache',
+                            json={
+                                'hash': key,
+                                'value': values[index],
+                                'proof': proofs[index],
+                            },
+                        )
+                    )
+                    for index in range(2)
+                ]
+                responses = [future.result(timeout=10) for future in futures]
+
+        self.assertEqual(sorted(r.status_code for r in responses), [200, 409])
+        self.assertIn(json.loads(store[key]), values)
 
     # ------------------------------------------------------------------
     # 2. Harness sanity check: the OLD get-then-set pattern DOES race

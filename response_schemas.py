@@ -32,7 +32,7 @@ only ever produces valid JSON for the declared type.
 # 'other' filler-block marker it also emits. Enforcing this as an enum
 # means the model can't invent a 13th category that the client's
 # groupChunksBySectionType silently doesn't know how to route.
-_DISCOVER_SECTION_TYPES = [
+DISCOVER_SECTION_TYPES = [
     'lesen_teil1', 'lesen_teil2', 'lesen_teil3', 'lesen_teil4',
     'beschwerde', 'sprachbausteine_teil1', 'sprachbausteine_teil2',
     'telefonnotiz', 'hoeren_teil1', 'hoeren_teil2', 'hoeren_teil3',
@@ -51,7 +51,7 @@ DISCOVER_SCHEMA = {
     'items': {
         'type': 'OBJECT',
         'properties': {
-            'section_type': {'type': 'STRING', 'enum': _DISCOVER_SECTION_TYPES},
+            'section_type': {'type': 'STRING', 'enum': DISCOVER_SECTION_TYPES},
             'variant_number': {'type': 'INTEGER', 'nullable': True},
             'version_label': {'type': 'STRING', 'nullable': True},
             'start_line': {'type': 'INTEGER'},
@@ -176,7 +176,7 @@ def _universal_variant_schema(question_count: int, span_texts: bool = False) -> 
 # its own copy of this as a defense-in-depth check after parsing —
 # belt-and-suspenders, since a schema bug here shouldn't be the only
 # thing standing between a bad response and the user.
-_UNIVERSAL_QUESTION_COUNTS = {
+UNIVERSAL_QUESTION_COUNTS = {
     'lesen_teil1': 5,
     'lesen_teil2': 2,
     'lesen_teil3': 4,
@@ -194,6 +194,11 @@ _UNIVERSAL_QUESTION_COUNTS = {
     # answer/option-consistency validation downstream.
     'hoeren_teil4': 5,
 }
+
+# Backward-compatible alias for promptfoo/assertions.py and any external
+# tooling that imported the former private name before this constant became a
+# shared cache-validation contract.
+_UNIVERSAL_QUESTION_COUNTS = UNIVERSAL_QUESTION_COUNTS
 
 
 # ─── hoeren_teil1 (bespoke schema — question_pairs, not texts/questions) ──────
@@ -399,7 +404,7 @@ def schema_for(section_type: str):
         return TELEFONNOTIZ_SCHEMA
     if section_type == 'sprachbausteine_teil1':
         return SPRACHBAUSTEINE_TEIL1_SCHEMA
-    count = _UNIVERSAL_QUESTION_COUNTS.get(section_type)
+    count = UNIVERSAL_QUESTION_COUNTS.get(section_type)
     if count is None:
         return None
     # minItems here matters as much as the per-object constraints above —

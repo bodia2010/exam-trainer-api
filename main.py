@@ -3,8 +3,11 @@ import json
 import re
 import time
 import asyncio
+import hashlib
+import hmac
 import tempfile
 import requests
+from urllib.parse import quote
 from flask import Flask, request, jsonify, Response
 import pdfminer.high_level
 from prompts import PROMPTS
@@ -17,6 +20,7 @@ from answer_markers import (
     strip_pdf_correct_markers,
 )
 import line_extraction
+import cache_validation
 import span_resolution
 import generation_config
 import firebase_auth
@@ -43,6 +47,12 @@ def _gemini_url(model: str) -> str:
 
 _UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL', '').rstrip('/')
 _UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
+_CACHE_PROOF_HEADER = 'X-Exam-Trainer-Cache-Proof'
+
+# These mirror ParseService's client-side namespaces. The backend owns the
+# proof key and never accepts a client-selected version for a new shared entry.
+_DISCOVER_CACHE_VERSION = 'v30'
+_PARSE_CACHE_VERSION = 'v38'
 
 
 def _cache_get(key: str):
@@ -55,7 +65,7 @@ def _cache_get(key: str):
         return None
     try:
         resp = requests.get(
-            f'{_UPSTASH_URL}/get/{key}',
+            f'{_UPSTASH_URL}/get/{quote(key, safe="")}',
             headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
             timeout=10,
         )
@@ -64,9 +74,12 @@ def _cache_get(key: str):
     if resp.status_code != 200:
         return None
     try:
-        return resp.json().get('result')
+        payload = resp.json()
     except ValueError:
         return None
+    if not isinstance(payload, dict) or payload.get('error'):
+        return None
+    return payload.get('result')
 
 
 class _CacheUnavailable(Exception):
@@ -87,7 +100,7 @@ def _cache_probe(key: str):
         raise _CacheUnavailable('Upstash not configured')
     try:
         resp = requests.get(
-            f'{_UPSTASH_URL}/get/{key}',
+            f'{_UPSTASH_URL}/get/{quote(key, safe="")}',
             headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
             timeout=10,
         )
@@ -101,6 +114,8 @@ def _cache_probe(key: str):
         raise _CacheUnavailable('non-JSON response') from e
     if not isinstance(payload, dict):
         raise _CacheUnavailable('unexpected response shape')
+    if payload.get('error'):
+        raise _CacheUnavailable('Upstash returned an error')
     return payload.get('result')
 
 
@@ -109,6 +124,75 @@ def _cache_probe(key: str):
 # leaves generous headroom while still bounding how much storage/traffic
 # an authenticated account can force onto the shared Redis cache per write.
 _CACHE_MAX_VALUE_BYTES = 4 * 1024 * 1024
+_CACHE_MAX_REQUEST_BYTES = _CACHE_MAX_VALUE_BYTES + 64 * 1024
+
+
+def _canonical_cache_value(value) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    )
+
+
+def _cache_proof(key: str, value) -> str | None:
+    """Authorize publishing exactly one backend-produced key/value pair.
+
+    The Upstash token is already required for the corresponding write and is
+    never sent to the client. Reusing it as HMAC key adds no weaker secret: a
+    party that knows it can already mutate Redis directly. Proofs are safe to
+    replay because cache entries are immutable and writes use SET NX.
+    """
+    if not _UPSTASH_TOKEN:
+        return None
+    message = (
+        'exam-trainer-cache-proof-v1\n'
+        f'{key}\n{_canonical_cache_value(value)}'
+    ).encode('utf-8')
+    return hmac.new(
+        _UPSTASH_TOKEN.encode('utf-8'),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _valid_cache_proof(key: str, value, proof) -> bool:
+    expected = _cache_proof(key, value)
+    return (
+        expected is not None and
+        isinstance(proof, str) and
+        hmac.compare_digest(expected, proof)
+    )
+
+
+def _cache_set_if_absent(key: str, serialized: str) -> bool:
+    """Atomically creates a trusted entry; False means it already exists."""
+    if not _UPSTASH_URL:
+        raise _CacheUnavailable('Upstash not configured')
+    try:
+        response = requests.post(
+            _UPSTASH_URL,
+            headers={'Authorization': f'Bearer {_UPSTASH_TOKEN}'},
+            json=['SET', key, serialized, 'NX'],
+            timeout=10,
+        )
+    except requests.RequestException as error:
+        raise _CacheUnavailable(str(error)) from error
+    if response.status_code != 200:
+        raise _CacheUnavailable(f'HTTP {response.status_code}')
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise _CacheUnavailable('non-JSON response') from error
+    if not isinstance(payload, dict) or payload.get('error'):
+        raise _CacheUnavailable('Upstash returned an error')
+    result = payload.get('result')
+    if result == 'OK':
+        return True
+    if result is None:
+        return False
+    raise _CacheUnavailable('unexpected SET NX response')
 
 
 def _cache_key_type(key: str) -> str:
@@ -142,6 +226,63 @@ def _valid_cache_key(value) -> bool:
         return False
     return bool(
         _LEGACY_CACHE_KEY_RE.fullmatch(value) or _CACHE_KEY_RE.fullmatch(value))
+
+
+def _trusted_parse_cache_key(
+    section_type: str,
+    markdown: str,
+    marker_format: str | None,
+) -> str | None:
+    """Reproduce the current Flutter cache key without trusting its input.
+
+    Group requests contain exactly the text hashed by ParseService. Discovery
+    requests contain the same raw document with deterministic line prefixes;
+    only a strict, lossless inverse is eligible for a shared-cache proof.
+    Legacy marker clients keep parsing normally but cannot populate the v38
+    namespace.
+    """
+    if marker_format != 'v38':
+        return None
+    if section_type == 'discover':
+        raw_markdown = line_extraction.unnumber_markdown(markdown)
+        if raw_markdown is None:
+            return None
+        version = _DISCOVER_CACHE_VERSION
+        key_type = 'discover'
+        hash_input = f'discover|{raw_markdown}'
+    else:
+        version = _PARSE_CACHE_VERSION
+        key_type = 'group'
+        hash_input = f'group|{section_type}|{markdown}'
+    digest = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+    return f'{version}|{key_type}|{digest}'
+
+
+def _response_with_cache_proof(
+    value,
+    *,
+    section_type: str,
+    markdown: str,
+    marker_format: str | None,
+):
+    response = jsonify(value)
+    key = _trusted_parse_cache_key(section_type, markdown, marker_format)
+    if key is None:
+        return response
+    raw_markdown = (
+        line_extraction.unnumber_markdown(markdown)
+        if section_type == 'discover' else None
+    )
+    if not cache_validation.eligible(value, section_type, raw_markdown):
+        print(f'CACHE_PROOF_REFUSED_INVALID key_type={_cache_key_type(key)}')
+        return response
+    serialized = _canonical_cache_value(value).encode('utf-8')
+    if len(serialized) > _CACHE_MAX_VALUE_BYTES:
+        return response
+    proof = _cache_proof(key, value)
+    if proof is not None:
+        response.headers[_CACHE_PROOF_HEADER] = proof
+    return response
 
 
 def _json_object(request_obj):
@@ -284,6 +425,7 @@ def _cors(response):
     response.headers['Access-Control-Allow-Headers'] = (
         'Content-Type, Authorization, X-Exam-Trainer-Answer-Markers'
     )
+    response.headers['Access-Control-Expose-Headers'] = _CACHE_PROOF_HEADER
     return response
 
 
@@ -602,6 +744,7 @@ def parse():
         return jsonify({'error': 'JSON object is required'}), 400
     markdown = body.get('markdown', '')
     section_type = body.get('section_type', '')
+    marker_format = request.headers.get('X-Exam-Trainer-Answer-Markers')
 
     prompt_template = PROMPTS.get(section_type)
     if not prompt_template:
@@ -692,10 +835,15 @@ def parse():
             # should make this unreachable going forward — kept as a
             # harmless fallback rather than removed outright.
             text = re.sub(r':\s*0+(\d+)(?=[,\s}\]])', r': \1', text)
-            return jsonify(json.loads(text))
+            parsed = json.loads(text)
+            return _response_with_cache_proof(
+                parsed,
+                section_type=section_type,
+                markdown=markdown,
+                marker_format=marker_format,
+            )
 
         parsed = json.loads(text)
-        marker_format = request.headers.get('X-Exam-Trainer-Answer-Markers')
         # Gemini can occasionally echo the technical provenance marker into
         # an option. Remove it before matching option text back to the marker
         # carried by the source markdown; otherwise the extra suffix prevents
@@ -720,7 +868,12 @@ def parse():
                 section_type=section_type,
             )
         parsed = span_resolution.sanitize_parser_metadata(parsed)
-        return jsonify(parsed)
+        return _response_with_cache_proof(
+            parsed,
+            section_type=section_type,
+            markdown=markdown,
+            marker_format=marker_format,
+        )
     except GeminiError as e:
         return jsonify({'error': str(e)}), e.status_code
     except json.JSONDecodeError as e:
@@ -760,24 +913,31 @@ def cache_endpoint():
             print(f'CACHE_CORRUPT_VALUE key_type={_cache_key_type(content_hash)}')
             return jsonify({'hit': False})
 
-    # Generic hash -> JSON value store, used both for whole-course results
-    # (keyed by a hash of the full document) and per-variant-group parse
-    # results (keyed by a hash of just that group's text) — same store,
-    # different granularity of what's being cached.
+    # Reject a declared oversized body before Flask buffers and decodes it.
+    # The decoded value limit below remains authoritative for requests whose
+    # transport omits Content-Length.
+    if (
+        request.content_length is not None and
+        request.content_length > _CACHE_MAX_REQUEST_BYTES
+    ):
+        return jsonify({'error': 'request too large'}), 413
+
     body = _json_object(request)
     if body is None:
         return jsonify({'error': 'JSON object is required'}), 400
     content_hash = body.get('hash', '')
     value = body.get('value')
+    proof = body.get('proof')
     if not _valid_cache_key(content_hash) or value is None:
         return jsonify({'error': 'a valid hash and value are required'}), 400
-    serialized = json.dumps(value)
-    if len(serialized) > _CACHE_MAX_VALUE_BYTES:
+    serialized = _canonical_cache_value(value)
+    if len(serialized.encode('utf-8')) > _CACHE_MAX_VALUE_BYTES:
         return jsonify({'error': 'value too large'}), 413
 
-    # Trust model: this endpoint NEVER creates a new shared-cache entry —
-    # it only ever confirms (idempotently) or rejects a write against a
-    # value that's already there. Earlier this used a non-atomic
+    # Trust model: an ordinary authenticated caller can only confirm or reject
+    # an existing value. Creating a key additionally requires an HMAC proof
+    # emitted by /api/parse for this exact backend-derived key/value pair.
+    # Earlier this used a non-atomic
     # GET-then-SET "write-once" check: two concurrent requests to the same
     # absent key could both observe MISS and both proceed to SET, with the
     # second silently winning (reproduced deterministically). Making that
@@ -791,43 +951,43 @@ def cache_endpoint():
     # hand-curated, PDF-verified `doc` entry the whole app converges on
     # (see PRODUCT_PLAN.md Phase 1/3 — real money and manual review went
     # into that exact value) before anything legitimate ever reaches it.
-    # Removing this endpoint's ability to create anything closes both
-    # problems at once: with no SET call left in this handler at all,
-    # there is no race to make atomic, and no "first write wins" window to
-    # exploit — every code path below only ever reads. New shared-cache
-    # entries can still be published, but only out-of-band by
-    # tools/inject_curated.py — same UPSTASH_REDIS_REST_URL/TOKEN env vars,
-    # not a distinct secret, but a separate manually-run CLI path that
-    # bypasses this public Flask endpoint (and Firebase auth) entirely and
-    # requires a human-reviewed checklist (PRODUCT_PLAN.md Phase 3) before
-    # anything is written; it already independently enforces "never
-    # overwrite a differing target" against Redis (see its `migrate()`) —
-    # this mirrors that same rule for the public read-side of the
-    # contract. Cost: inject_curated.py only ever publishes `doc` keys, so
-    # `group`/`discover` entries — previously written by ANY live client
-    # import, either tier, no premium gate on that path either — can no
-    # longer be populated by anyone at all; every group/discover lookup
-    # misses and re-parses. See PRODUCT_PLAN.md for that trade-off and a
-    # proposed follow-up (a trusted server-side write from inside
-    # /api/parse itself, which never needs this endpoint's public trust
-    # boundary at all) — out of scope for this fix.
+    # A proof cannot be moved to another key or modified value, and SET NX
+    # makes two valid concurrent publications atomic. Whole-document `doc`
+    # values remain curated-only because /api/parse never sees that client-
+    # assembled aggregate and therefore never issues a proof for it.
     try:
         existing = _cache_probe(content_hash)
     except _CacheUnavailable:
         return jsonify({'error': 'cache temporarily unavailable'}), 503
 
     if existing is None:
-        print(
-            'CACHE_WRITE_REFUSED_NO_CREATE '
-            f'key_type={_cache_key_type(content_hash)}'
-        )
-        return jsonify({
-            'error': 'creating new shared cache entries is not allowed here',
-        }), 403
+        if not _valid_cache_proof(content_hash, value, proof):
+            print(
+                'CACHE_WRITE_REFUSED_NO_PROOF '
+                f'key_type={_cache_key_type(content_hash)}'
+            )
+            return jsonify({
+                'error': 'a trusted cache proof is required to create an entry',
+            }), 403
+        try:
+            created = _cache_set_if_absent(content_hash, serialized)
+        except _CacheUnavailable:
+            return jsonify({'error': 'cache temporarily unavailable'}), 503
+        if created:
+            print(f'CACHE_TRUSTED_WRITE key_type={_cache_key_type(content_hash)}')
+            return jsonify({'ok': True, 'created': True})
+        # Another valid publisher won after our probe. Read the settled value
+        # and apply the same immutable-value conflict contract below.
+        try:
+            existing = _cache_probe(content_hash)
+        except _CacheUnavailable:
+            return jsonify({'error': 'cache temporarily unavailable'}), 503
+        if existing is None:
+            return jsonify({'error': 'cache temporarily unavailable'}), 503
 
     try:
         differs = json.loads(existing) != value
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         differs = True
     if differs:
         print(
