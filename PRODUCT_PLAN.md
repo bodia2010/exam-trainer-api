@@ -1346,3 +1346,11 @@ Sprachbausteine accessibility 1/1. Production cold launch завершил prelo
 ровно по одной вариации. Free/device gate закрыт. До публикации AAB остаётся
 Premium v38 cache-hit исходного 207-page PDF на SM-S938B; unknown PDF и paid
 parse для этого не нужны.
+
+Premium gate завершён: SM-S938B обновлён до production versionCode 11 без
+очистки данных, exact flagship PDF (SHA-256 `53634b0c...`) импортирован примерно
+за 26 секунд и создал третий 142-item course. Production log подтвердил
+`GET /api/cache` по `v30.v38|doc|d4103bd6...`, `CACHE_LOOKUP hit=True`, HTTP
+200; Gemini parse не запускался. Временный PDF удалён с устройства. Free и
+Premium rollout v38 теперь закрыт, verified AAB можно передавать в ручной Play
+Console workflow.
