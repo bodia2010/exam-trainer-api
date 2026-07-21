@@ -1693,3 +1693,11 @@ Premium Web→Android smoke также завершён 21 июля 2026 на US
 пример; после cold restart Android синхронизировал новый четвёртый курс, открыл
 `Lesen Teil 2 · web-creator` и показал `2/2`. Backend contract не менялся,
 Hosting deployment не выполнялся.
+
+Следующий локальный UX-slice Web Creator завершён 21 июля 2026 без изменений
+backend: пользователь может вставить один полный блок `Lesen Teil 2`, получить
+детерминированный редактируемый черновик и использовать прежний приватный
+publish. Natural 6–7/8–9 и строгие `[TITEL]/[TEXT]/[FRAGEN]/[ANTWORTEN]`
+поддержаны; неоднозначность и неизвестный хвост отклоняются. Gemini/shared cache
+не вызываются, `/api/courses` и schema v1 не менялись. Web gates: 27/27 tests,
+Chrome 3/3, coverage 82.03%, release build; Hosting не развёрнут.
