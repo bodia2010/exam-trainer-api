@@ -1684,6 +1684,6 @@ default Hosting site: dedicated site, authorized Hosting domain и deploy ещё
 Реальный production-compatible smoke 21 июля 2026 прошёл без изменения backend:
 Firebase Web login → private library GET → `POST /api/courses` → signed Android
 release sync → открытие `Lesen Teil 2` → результат `2/2`. Новый формат остаётся
-schema v1 и UID-isolated. Android profile показал Free при заявленном Premium,
-поэтому entitlement требует отдельной диагностики; это не помешало private
-course sync. Hosting deployment не выполнялся.
+schema v1 и UID-isolated. Этот smoke был на Free Wi-Fi-аккаунте; отдельный USB
+Samsung SM-S938B корректно подтвердил `Premium-Konto`, поэтому entitlement-баг
+не воспроизводится. Hosting deployment не выполнялся.
